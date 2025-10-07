@@ -29,7 +29,9 @@ export default function ProductTable() {
 
   const [skuSearch, setSkuSearch] = useState("");
   const [nameSearch, setNameSearch] = useState("");
-  const [selectedLocation, setSelectedLocation] = useState("Riverhorse Valley-Warehouse")
+  const [selectedLocation, setSelectedLocation] = useState(
+    "Riverhorse Valley-Warehouse"
+  );
 
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(50);
@@ -340,14 +342,14 @@ export default function ProductTable() {
         <Autocomplete
           sx={{ width: "30%" }}
           options={[
-            { Name: "Riverhorse Valley-Warehouse"},
+            { Name: "Riverhorse Valley-Warehouse" },
             { Name: "Deco Park Warehouse" },
           ]}
           getOptionLabel={(opt) => opt.Name}
           value={
             [
               { Name: "Riverhorse Valley-Warehouse" },
-              { Name: "Deco Park Warehouse"}
+              { Name: "Deco Park Warehouse" },
             ].find((loc) => loc.Name === selectedLocation) || null
           }
           onChange={(_, val) => setSelectedLocation(val?.Name || "")}
@@ -383,7 +385,7 @@ export default function ProductTable() {
               <TableCell>Allocated</TableCell>
               <TableCell>Available</TableCell>
               <TableCell>On Order</TableCell>
-              <TableCell>SOH</TableCell>
+              <TableCell></TableCell>
               <TableCell>In Transit</TableCell>
             </TableRow>
           </TableHead>
@@ -405,12 +407,20 @@ export default function ProductTable() {
                   <TableCell>{item.Allocated}</TableCell>
                   <TableCell>{item.Available}</TableCell>
                   <TableCell>{item.OnOrder}</TableCell>
-                  <TableCell
-                    sx={{ color: "blue", cursor: "pointer" }}
-                    onClick={() => handleSOHClick(item.SKU, item.Location)}
-                  >
-                    {item.StockOnHand}
+                  <TableCell>
+                    <Button
+                      variant="text"
+                      onClick={() => handleSOHClick(item.SKU, item.Location)}
+                      sx={{
+                        padding: 0,
+                        minWidth: "auto",
+                        textTransform: "none",
+                      }}
+                    >
+                      View OTS
+                    </Button>
                   </TableCell>
+
                   <TableCell>{item.InTransit}</TableCell>
                 </TableRow>
               ))
