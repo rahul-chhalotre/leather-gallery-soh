@@ -73,6 +73,8 @@ export default function ProductTable() {
 
         acc[month].push({
           Location: order.Location,
+          requireby: order.RequiredBy,
+
           orderNumber: order.OrderNumber,
           orders: order.Order.Lines.map((line) => ({
             SKU: line.SKU,
@@ -117,6 +119,7 @@ export default function ProductTable() {
 
         acc[month].push({
           Location: order.Location,
+          shipby: order.ShipBy,
           orderNumber: order.Order.SaleOrderNumber,
           orders: order.Order.Lines.map((line) => ({
             SKU: line.SKU,
@@ -189,9 +192,12 @@ export default function ProductTable() {
 
   const getMonthlyDueInOutForSKU = (sku) => {
     const result = {};
-
     Object.entries(dueInOrders).forEach(([month, orders]) => {
-      orders.forEach((order) => {
+      const inOrders = orders.filter(
+        (order) => new Date(order.requireby) > new Date()
+      );
+
+      inOrders.forEach((order) => {
         order.orders.forEach((line) => {
           if (line.SKU === sku) {
             if (!result[month]) {
@@ -207,7 +213,11 @@ export default function ProductTable() {
     });
 
     Object.entries(dueOutOrders).forEach(([month, orders]) => {
-      orders.forEach((order) => {
+      const outOrders = orders.filter(
+        (order) => new Date(order.shipby) > new Date()
+      );
+
+      outOrders.forEach((order) => {
         order.orders.forEach((line) => {
           if (line.SKU === sku) {
             if (!result[month]) {
@@ -243,16 +253,67 @@ export default function ProductTable() {
       setOpenPopup(true);
 
       const product = products.find((p) => p.SKU === sku);
-      const onHand = product?.OnHand ?? 0;
+      const available = product?.Available ?? 0;
 
       const monthlyData = getMonthlyDueInOutForSKU(sku);
 
-      let currentOTS = onHand;
+      const today = new Date();
+
+      const pastDueIn = Object.values(dueInOrders)
+        .flat()
+        .filter(
+          (order) =>
+            new Date(order.requireby) < today &&
+            order.orders.some((line) => line.SKU === sku)
+        );
+
+      const pastDueOut = Object.values(dueOutOrders)
+        .flat()
+        .filter(
+          (order) =>
+            new Date(order.shipby) < today &&
+            order.orders.some((line) => line.SKU === sku)
+        );
+
+      const totalPastDueIn = pastDueIn.reduce((sum, order) => {
+        return (
+          sum +
+          order.orders
+            .filter((line) => line.SKU === sku)
+            .reduce((s, line) => s + line.Quantity, 0)
+        );
+      }, 0);
+
+      const totalPastDueOut = pastDueOut.reduce((sum, order) => {
+        return (
+          sum +
+          order.orders
+            .filter((line) => line.SKU === sku)
+            .reduce((s, line) => s + line.Quantity, 0)
+        );
+      }, 0);
+
+      const sohEntry = {
+        month: "SOH",
+        dueIn: available,
+        dueOut: "",
+        ots: available,
+        refs: [],
+      };
+
+      const dueEntry = {
+        month: "Due",
+        dueIn: totalPastDueIn,
+        dueOut: totalPastDueOut,
+        ots:  totalPastDueIn - totalPastDueOut,
+        refs: [],
+      };
+
+      let currentOTS = dueEntry.ots;
       const computedData = monthlyData.map((entry) => {
-        const { dueIn, dueOut } = entry;
-        const inQty = parseInt(dueIn) || 0;
-        const outQty = parseInt(dueOut) || 0;
-        currentOTS = currentOTS + inQty - outQty;
+        const inQty = parseInt(entry.dueIn) || 0;
+        const outQty = parseInt(entry.dueOut) || 0;
+        currentOTS += inQty - outQty;
 
         return {
           ...entry,
@@ -260,15 +321,7 @@ export default function ProductTable() {
         };
       });
 
-      const sohEntry = {
-        month: "SOH",
-        dueIn: onHand,
-        dueOut: "",
-        ots: onHand,
-        refs: [],
-      };
-
-      setPopupData([sohEntry, ...computedData]);
+      setPopupData([sohEntry, dueEntry, ...computedData]);
     } catch (err) {
       console.error("Error fetching SOH popup data:", err);
       setPopupData([]);

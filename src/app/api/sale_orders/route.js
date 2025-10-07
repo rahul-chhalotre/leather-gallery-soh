@@ -85,7 +85,7 @@ results.forEach((r) => {
   const shipByDate = (r.value && r.value.ShipBy) ? new Date(r.value.ShipBy) : null;
   const today = new Date();
 
-  if (shipByDate && shipByDate > today) {
+  if (shipByDate) {
     fullDetails.push(r.value);
   }
 });

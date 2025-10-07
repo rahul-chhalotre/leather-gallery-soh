@@ -79,7 +79,7 @@ export async function GET(request) {
 
       results.forEach((r) => {
         if (r.value && r.value.CombinedReceivingStatus !== 'FULLY RECEIVED' &&
-            r.value.CombinedInvoiceStatus !== 'INVOICED' && r.value.RequiredBy && new Date(r.value.RequiredBy) > new Date()
+            r.value.CombinedInvoiceStatus !== 'INVOICED' && r.value.RequiredBy 
             ) fullDetails.push(r.value);
       });
     }
