@@ -257,7 +257,7 @@ export default function ProductTable() {
       setOpenPopup(true);
 
       const product = products.find((p) => p.SKU === sku);
-      const available = product?.Available ?? 0;
+      const OnHand = product?.OnHand ?? 0;
 
       const monthlyData = getMonthlyDueInOutForSKU(sku);
 
@@ -299,9 +299,9 @@ export default function ProductTable() {
 
       const sohEntry = {
         month: "SOH",
-        dueIn: available,
+        dueIn: OnHand,
         dueOut: "",
-        ots: available,
+        ots: OnHand,
         refs: [],
       };
 
@@ -309,7 +309,7 @@ export default function ProductTable() {
         month: "Late Orders",
         dueIn: totalPastDueIn,
         dueOut: totalPastDueOut,
-        ots: available + totalPastDueIn - totalPastDueOut,
+        ots: OnHand + totalPastDueIn - totalPastDueOut,
         refs: [],
       };
 
@@ -519,7 +519,7 @@ export default function ProductTable() {
                     <TableCell>Month</TableCell>
                     <TableCell>In</TableCell>
                     <TableCell>Out</TableCell>
-                    <TableCell>OTS</TableCell>
+                    <TableCell>Open to Sell</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
