@@ -1,13 +1,13 @@
-// "use client";
-
+import { Suspense } from "react";
 import Header from "./component/header/page";
-import ProductTable from "./component/product_table/page";
+
+import ProductTableCall from "./component/product_table/producttable";
 
 export default function Home() {
   return (
     <>
-     <Header/>
-     <ProductTable/>
+      <Header />
+      <ProductTableCall/>
     </>
   );
 }
