@@ -48,20 +48,29 @@ export default function ProductTable() {
   const [dueOutOrders, setDueOutOrders] = useState([]);
   const [dueOutLoading, setDueOutLoading] = useState(false);
 
-  const searchParams = useSearchParams();
+//   const searchParams = useSearchParams();
 
-  useEffect(() => {
-    const searchQuery = searchParams.get("search") || "";
-    const locationQuery = searchParams.get("Location") || "";
-     console.log("search query",searchQuery)
-    if (searchQuery) {
-      setSkuSearch(searchQuery);
-    }
+//   useEffect(() => {
+//     const searchQuery = searchParams.get("search") || "";
+//     const locationQuery = searchParams.get("Location") || "";
+//      console.log("search query",searchQuery)
+//     if (searchQuery) {
+//       setSkuSearch(searchQuery);
+//     }
 
-    if (locationQuery) {
-      setSelectedLocation(locationQuery);
-    }
-  }, [searchParams.toString()]);
+//     if (locationQuery) {
+//       setSelectedLocation(locationQuery);
+//     }
+//   }, [searchParams.toString()]);
+useEffect(() => {
+  const params = new URLSearchParams(window.location.search);
+  const searchQuery = params.get("search") || "";
+  const locationQuery = params.get("Location") || "";
+
+  if (searchQuery) setSkuSearch(searchQuery);
+  if (locationQuery) setSelectedLocation(locationQuery);
+}, []);
+
 
   const searchTimeout = useRef(null);
   const locationOptions = [
