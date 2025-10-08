@@ -53,7 +53,7 @@ export default function ProductTable() {
   useEffect(() => {
     const searchQuery = searchParams.get("search") || "";
     const locationQuery = searchParams.get("Location") || "";
-
+     console.log("search query",searchQuery)
     if (searchQuery) {
       setSkuSearch(searchQuery);
     }
@@ -61,7 +61,7 @@ export default function ProductTable() {
     if (locationQuery) {
       setSelectedLocation(locationQuery);
     }
-  }, [searchParams]);
+  }, [searchParams.toString()]);
 
   const searchTimeout = useRef(null);
   const locationOptions = [
