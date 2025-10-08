@@ -48,6 +48,10 @@ export default function ProductTable() {
   const [dueOutLoading, setDueOutLoading] = useState(false);
 
   const searchTimeout = useRef(null);
+  const locationOptions = [
+    { Name: "Riverhorse Valley-Warehouse" },
+    { Name: "Deco Park Warehouse" },
+  ];
 
   const loadDueInOrders = async () => {
     setDueInLoading(true);
@@ -302,10 +306,10 @@ export default function ProductTable() {
       };
 
       const dueEntry = {
-        month: "Due",
+        month: "Late Orders",
         dueIn: totalPastDueIn,
         dueOut: totalPastDueOut,
-        ots:  totalPastDueIn - totalPastDueOut,
+        ots: available + totalPastDueIn - totalPastDueOut,
         refs: [],
       };
 
@@ -394,16 +398,10 @@ export default function ProductTable() {
         />
         <Autocomplete
           sx={{ width: "30%" }}
-          options={[
-            { Name: "Riverhorse Valley-Warehouse" },
-            { Name: "Deco Park Warehouse" },
-          ]}
-          getOptionLabel={(opt) => opt.Name}
+          options={locationOptions}
+          getOptionLabel={(option) => option.Name}
           value={
-            [
-              { Name: "Riverhorse Valley-Warehouse" },
-              { Name: "Deco Park Warehouse" },
-            ].find((loc) => loc.Name === selectedLocation) || null
+            locationOptions.find((loc) => loc.Name === selectedLocation) || null
           }
           onChange={(_, val) => setSelectedLocation(val?.Name || "")}
           renderInput={(params) => (
