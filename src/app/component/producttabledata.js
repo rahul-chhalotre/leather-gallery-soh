@@ -53,11 +53,11 @@ export default function ProductTable() {
 
 useEffect(() => {
   const params = new URLSearchParams(window.location.search);
-  // const searchQuery = params.get("search") || "";
+  const searchQuery = params.get("search") || "";
   const nameQuery = params.get("name") || "";
   const locationQuery = params.get("Location") || "";
 
-  // if (searchQuery) setSkuSearch(searchQuery);
+  if (searchQuery) setSkuSearch(searchQuery);
   if (nameQuery) setNameSearch(nameQuery);
   if (locationQuery) setSelectedLocation(locationQuery);
 }, []);
