@@ -23,6 +23,7 @@ import {
   Skeleton,
 } from "@mui/material";
 
+const normalizeLocation = (loc) => loc.replace(/\s+/g, "").toLowerCase();
 
 export default function ProductTable() {
   const [products, setProducts] = useState([]);
@@ -48,20 +49,16 @@ export default function ProductTable() {
   const [dueOutOrders, setDueOutOrders] = useState([]);
   const [dueOutLoading, setDueOutLoading] = useState(false);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const searchQuery = params.get("search") || "";
+    // const nameQuery = params.get("name") || "";
+    const locationQuery = params.get("Location") || "";
 
-
-
-useEffect(() => {
-  const params = new URLSearchParams(window.location.search);
-  const searchQuery = params.get("search") || "";
-  const nameQuery = params.get("name") || "";
-  const locationQuery = params.get("Location") || "";
-
-  if (searchQuery) setSkuSearch(searchQuery);
-  if (nameQuery) setNameSearch(nameQuery);
-  if (locationQuery) setSelectedLocation(locationQuery);
-}, []);
-
+    if (searchQuery) setSkuSearch(searchQuery);
+    // if (nameQuery) setNameSearch(nameQuery);
+    if (locationQuery) setSelectedLocation(locationQuery);
+  }, []);
 
   const searchTimeout = useRef(null);
   const locationOptions = [
@@ -181,7 +178,8 @@ useEffect(() => {
 
       const grouped = Object.values(
         list.reduce((acc, item) => {
-          if (!acc[item.SKU]) acc[item.SKU] = { ...item };
+          if (!acc[item.SKU])
+            acc[item.SKU] = { ...item, Location: [item.Location] };
           else {
             acc[item.SKU].OnHand += item.OnHand || 0;
             acc[item.SKU].Allocated += item.Allocated || 0;
@@ -189,13 +187,16 @@ useEffect(() => {
             acc[item.SKU].OnOrder += item.OnOrder || 0;
             acc[item.SKU].StockOnHand += parseInt(item.StockOnHand) || 0;
             acc[item.SKU].InTransit += item.InTransit || 0;
-            acc[item.SKU].Location += `, ${item.Location}`;
+            // acc[item.SKU].Location += `, ${item.Location}`;
+            if (!acc[item.SKU].Location.includes(item.Location)) {
+              acc[item.SKU].Location.push(item.Location);
+            }
           }
           return acc;
         }, {})
       );
       setProducts(grouped);
-      setTotalRecords(result.Total || grouped.length);
+      setTotalRecords(sku || name ? grouped.length:result.Total || grouped.length);
     } catch (err) {
       console.error("Error loading products:", err);
       setProducts([]);
@@ -210,22 +211,35 @@ useEffect(() => {
     return new Date(`${monthStr} 1, ${year}`);
   };
 
-  const getMonthlyDueInOutForSKU = (sku) => {
+  const getMonthlyDueInOutForSKU = (sku, location) => {
     const result = {};
     Object.entries(dueInOrders).forEach(([month, orders]) => {
+      console.log("Checking dueIn month:", month);
       const inOrders = orders.filter(
         (order) => new Date(order.requireby) > new Date()
       );
 
       inOrders.forEach((order) => {
         order.orders.forEach((line) => {
-          if (line.SKU === sku) {
-            if (!result[month]) {
-              result[month] = { dueIn: 0, dueOut: 0, refs: [] };
-            }
-            result[month].dueIn += line.Quantity;
-            if (!result[month].refs.includes(order.orderNumber)) {
-              result[month].refs.push(order.orderNumber);
+          if (line.SKU === sku && order.Location === location) {
+            const normalizedOrderLoc = normalizeLocation(order.Location);
+            const normalizedSelectedLoc = normalizeLocation(location);
+            const isMatching = normalizedOrderLoc === normalizedSelectedLoc;
+
+            console.log(`[PO] SKU: ${sku}`);
+            console.log("  → Order Location:", order.Location);
+            console.log("  → Selected Location:", location);
+            console.log("  → Normalized Match:", isMatching);
+            console.log("  → Order Number:", order.orderNumber);
+
+            if (isMatching) {
+              if (!result[month]) {
+                result[month] = { dueIn: 0, dueOut: 0, refs: [] };
+              }
+              result[month].dueOut += line.Quantity;
+              if (!result[month].refs.includes(order.orderNumber)) {
+                result[month].refs.push(order.orderNumber);
+              }
             }
           }
         });
@@ -239,13 +253,25 @@ useEffect(() => {
 
       outOrders.forEach((order) => {
         order.orders.forEach((line) => {
-          if (line.SKU === sku) {
-            if (!result[month]) {
-              result[month] = { dueIn: 0, dueOut: 0, refs: [] };
-            }
-            result[month].dueOut += line.Quantity;
-            if (!result[month].refs.includes(order.orderNumber)) {
-              result[month].refs.push(order.orderNumber);
+          if (line.SKU === sku && order.Location === location) {
+            const normalizedOrderLoc = normalizeLocation(order.Location);
+            const normalizedSelectedLoc = normalizeLocation(selectedLocation);
+            const isMatching = normalizedOrderLoc === normalizedSelectedLoc;
+
+            console.log(`[SO] SKU: ${sku}`);
+            console.log("  → Order Location:", order.Location);
+            console.log("  → Selected Location:", selectedLocation);
+            console.log("  → Normalized Match:", isMatching);
+            console.log("  → Order Number:", order.orderNumber);
+
+            if (isMatching) {
+              if (!result[month]) {
+                result[month] = { dueIn: 0, dueOut: 0, refs: [] };
+              }
+              result[month].dueOut += line.Quantity;
+              if (!result[month].refs.includes(order.orderNumber)) {
+                result[month].refs.push(order.orderNumber);
+              }
             }
           }
         });
@@ -267,15 +293,16 @@ useEffect(() => {
       });
   };
 
-  const handleSOHClick = async (sku, location) => {
+  const handleSOHClick = async (sku, selectedLocation) => {
     try {
       setPopupLoading(true);
+      setPopupData([]);
       setOpenPopup(true);
 
       const product = products.find((p) => p.SKU === sku);
       const OnHand = product?.OnHand ?? 0;
 
-      const monthlyData = getMonthlyDueInOutForSKU(sku);
+      const monthlyData = getMonthlyDueInOutForSKU(sku, selectedLocation);
 
       const today = new Date();
 
@@ -284,6 +311,7 @@ useEffect(() => {
         .filter(
           (order) =>
             new Date(order.requireby) < today &&
+            order.Location === selectedLocation &&
             order.orders.some((line) => line.SKU === sku)
         );
 
@@ -292,6 +320,7 @@ useEffect(() => {
         .filter(
           (order) =>
             new Date(order.shipby) < today &&
+            order.Location === selectedLocation &&
             order.orders.some((line) => line.SKU === sku)
         );
 
@@ -320,13 +349,19 @@ useEffect(() => {
         ots: OnHand,
         refs: [],
       };
+      const lateRefs = [
+        ...new Set([
+          ...pastDueIn.map((order) => order.orderNumber),
+          ...pastDueOut.map((order) => order.orderNumber),
+        ]),
+      ];
 
       const dueEntry = {
         month: "Late Orders",
         dueIn: totalPastDueIn,
         dueOut: totalPastDueOut,
         ots: OnHand + totalPastDueIn - totalPastDueOut,
-        refs: [],
+        refs: lateRefs,
       };
 
       let currentOTS = dueEntry.ots;
@@ -341,6 +376,7 @@ useEffect(() => {
         };
       });
 
+      console.log("Final popupData:", [sohEntry, dueEntry, ...computedData]);
       setPopupData([sohEntry, dueEntry, ...computedData]);
     } catch (err) {
       console.error("Error fetching SOH popup data:", err);
@@ -369,7 +405,7 @@ useEffect(() => {
     }, 500);
 
     return () => clearTimeout(searchTimeout.current);
-  }, [page, rowsPerPage, skuSearch, selectedLocation, nameSearch]);
+  }, [rowsPerPage, skuSearch, selectedLocation, nameSearch]);
 
   const handlePageChange = (_, newPage) => setPage(newPage);
   const handleRowsPerPageChange = (e) => {
@@ -477,7 +513,7 @@ useEffect(() => {
                   <TableCell>
                     <Button
                       variant="text"
-                      onClick={() => handleSOHClick(item.SKU, item.Location)}
+                      onClick={() => handleSOHClick(item.SKU, selectedLocation)}
                       sx={{
                         padding: 0,
                         minWidth: "auto",
