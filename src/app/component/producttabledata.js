@@ -23,7 +23,9 @@ import {
   Skeleton,
 } from "@mui/material";
 
-const normalizeLocation = (loc) => loc.replace(/\s+/g, "").toLowerCase();
+// const normalizeLocation = (loc) => loc.replace(/\s+/g, "").toLowerCase();
+const normalizeLocation = (loc) =>
+  loc?.toLowerCase().replace(/\s+/g, "") || "";
 
 export default function ProductTable() {
   const [products, setProducts] = useState([]);
@@ -66,99 +68,156 @@ export default function ProductTable() {
     { Name: "Deco Park Warehouse" },
   ];
 
-  const loadDueInOrders = async () => {
-    setDueInLoading(true);
-    try {
-      const res = await fetch(
-        `/api/purchase_orders?OrderStatus=AUTHORISED&RestockReceivedStatus=DRAFT`
-      );
-      if (!res.ok) throw new Error("Failed to fetch due-in orders");
-      const data = await res.json();
-      const allOrders = data.purchaseOrders || [];
+const purchaseCache = useRef({});
+const salesCache = useRef({});
+const productCache = useRef({});
 
-      const getYearMonth = (dateString) => {
-        const date = new Date(dateString);
-        const year = date.getFullYear();
-        const month = date.toLocaleString("default", { month: "short" });
-        return `${year}-${month}`;
-      };
+const loadDueInOrders = async (pageNum = 1, limit = 50) => {
+  const cacheKey = `${pageNum}-${limit}-${location}`;
+  if (purchaseCache.current[cacheKey]) {
+    setDueInOrders(purchaseCache.current[cacheKey]);
+    return;
+  }
 
-      const groupedOrders = allOrders.reduce((acc, order) => {
-        if (!order.RequiredBy) return acc;
-        const month = getYearMonth(order.RequiredBy);
-        if (!acc[month]) acc[month] = [];
+  setDueInLoading(true);
+  try {
+    const res = await fetch(
+      `/api/purchase_orders?OrderStatus=AUTHORISED&RestockReceivedStatus=DRAFT&page=${pageNum}&limit=${limit}`
+    );
+    if (!res.ok) throw new Error("Failed to fetch due-in orders");
+    const data = await res.json();
+    const allOrders = data.purchaseOrders || [];
 
-        acc[month].push({
-          Location: order.Location,
-          requireby: order.RequiredBy,
+    const getYearMonth = (dateString) => {
+      const date = new Date(dateString);
+      return `${date.getFullYear()}-${date.toLocaleString("default", { month: "short" })}`;
+    };
 
-          orderNumber: order.OrderNumber,
-          orders: order.Order.Lines.map((line) => ({
-            SKU: line.SKU,
-            Quantity: line.Quantity,
-          })),
-        });
+    const groupedOrders = allOrders.reduce((acc, order) => {
+      if (!order.RequiredBy) return acc;
+      const month = getYearMonth(order.RequiredBy);
+      acc[month] = acc[month] || [];
+      acc[month].push({
+        Location: (order.Location),
+        requireby: order.RequiredBy,
+        orderNumber: order.OrderNumber,
+        orders: order.Order.Lines.map((line) => ({
+          SKU: line.SKU,
+          Quantity: line.Quantity,
+        })),
+      });
+      return acc;
+    }, {});
 
+    purchaseCache.current[cacheKey] = groupedOrders; 
+    setDueInOrders(groupedOrders);
+  } catch (err) {
+    console.error("Error fetching due-in orders:", err);
+  } finally {
+    setDueInLoading(false);
+  }
+};
+
+const loadDueOutOrders = async (pageNum = 1, limit = 50) => {
+  const cacheKey = `${pageNum}-${limit}`;
+  if (salesCache.current[cacheKey]) {
+    setDueOutOrders(salesCache.current[cacheKey]);
+    return;
+  }
+
+  setDueOutLoading(true);
+  try {
+    const res = await fetch(
+      `/api/sale_orders?OrderStatus=AUTHORISED&FulfilmentStatus=NOTFULFILLED&page=${pageNum}&limit=${limit}`
+    );
+    if (!res.ok) throw new Error("Failed to fetch due-out orders");
+    const data = await res.json();
+    const allOrders = data.saleOrders || [];
+    
+    const getYearMonth = (dateString) => {
+      const date = new Date(dateString);
+      return `${date.getFullYear()}-${date.toLocaleString("default", { month: "short" })}`;
+    };
+
+    const groupedOrders = allOrders.reduce((acc, order) => {
+      if (!order.ShipBy) return acc;
+      const month = getYearMonth(order.ShipBy);
+      acc[month] = acc[month] || [];
+      acc[month].push({
+        Location: (order.Location),
+        shipby: order.ShipBy,
+        orderNumber: order.Order.SaleOrderNumber,
+        orders: order.Order.Lines.map((line) => ({
+          SKU: line.SKU,
+          Quantity: line.Quantity,
+        })),
+      });
+      return acc;
+    }, {});
+
+    salesCache.current[cacheKey] = groupedOrders; 
+    setDueOutOrders(groupedOrders);
+  } catch (err) {
+    console.error("Error fetching due-out orders:", err);
+  } finally {
+    setDueOutLoading(false);
+  }
+};
+
+const loadProducts = async (pageNum, limit, sku, location, name) => {
+  const cacheKey = `${pageNum}-${limit}-${sku}-${location}-${name}`;
+  if (productCache.current[cacheKey]) {
+    const cached = productCache.current[cacheKey];
+    setProducts(cached.products);
+    setTotalRecords(cached.total);
+    return;
+  }
+
+  setLoading(true);
+  try {
+    const res = await fetch(
+      `/api/product-availability?page=${pageNum}&limit=${limit}&sku=${sku}&location=${location}&name=${name}`
+    );
+    if (!res.ok) throw new Error("Failed to fetch products");
+
+    const result = await res.json();
+    const list = result.ProductAvailabilityList || [];
+
+    const grouped = Object.values(
+      list.reduce((acc, item) => {
+        if (!acc[item.SKU])
+          acc[item.SKU] = { ...item, Location: [item.Location] };
+        else {
+          acc[item.SKU].OnHand += item.OnHand || 0;
+          acc[item.SKU].Allocated += item.Allocated || 0;
+          acc[item.SKU].Available += item.Available || 0;
+          acc[item.SKU].OnOrder += item.OnOrder || 0;
+          acc[item.SKU].StockOnHand += parseInt(item.StockOnHand) || 0;
+          acc[item.SKU].InTransit += item.InTransit || 0;
+          if (!acc[item.SKU].Location.includes(item.Location)) {
+            acc[item.SKU].Location.push(item.Location);
+          }
+        }
         return acc;
-      }, {});
+      }, {})
+    );
 
-      setDueInOrders(groupedOrders);
-    } catch (err) {
-      console.error("Error fetching due-in orders:", err);
-      setDueInOrders({});
-    } finally {
-      setDueInLoading(false);
-    }
-  };
+    const total = sku || name ? grouped.length : result.Total || grouped.length;
+    productCache.current[cacheKey] = { products: grouped, total }; 
+    setProducts(grouped);
+    setTotalRecords(total);
+  } catch (err) {
+    console.error("Error loading products:", err);
+    setProducts([]);
+    setTotalRecords(0);
+  } finally {
+    setLoading(false);
+  }
+};
 
-  const loadDueOutOrders = async () => {
-    setDueOutLoading(true);
+const loadLocations = async () => {
     try {
-      const res = await fetch(
-        `/api/sale_orders?OrderStatus=AUTHORISED&FulfilmentStatus=NOT FULFILLED`
-      );
-      if (!res.ok) throw new Error("Failed to fetch due-out orders");
-
-      const data = await res.json();
-      const allOrders = data.saleOrders || [];
-
-      const getYearMonth = (dateString) => {
-        const date = new Date(dateString);
-        const year = date.getFullYear();
-        const month = date.toLocaleString("default", { month: "short" });
-        return `${year}-${month}`;
-      };
-
-      const groupedOrders = allOrders.reduce((acc, order) => {
-        if (!order.ShipBy) return acc;
-        const month = getYearMonth(order.ShipBy);
-        if (!acc[month]) acc[month] = [];
-
-        acc[month].push({
-          Location: order.Location,
-          shipby: order.ShipBy,
-          orderNumber: order.Order.SaleOrderNumber,
-          orders: order.Order.Lines.map((line) => ({
-            SKU: line.SKU,
-            Quantity: line.Quantity,
-          })),
-        });
-
-        return acc;
-      }, {});
-
-      setDueOutOrders(groupedOrders);
-    } catch (err) {
-      console.error("Error fetching due-out orders:", err);
-      setDueOutOrders({});
-    } finally {
-      setDueOutLoading(false);
-    }
-  };
-
-  const loadLocations = async () => {
-    try {
-      const res = await fetch("/api/location?page=1&limit=1000");
+      const res = await fetch("/api/location?page=1&limit=100");
       const result = await res.json();
       setLocations(result.LocationList || []);
     } catch (err) {
@@ -166,52 +225,15 @@ export default function ProductTable() {
       setLocations([]);
     }
   };
-
-  const loadProducts = async (pageNum, limit, sku, location, name) => {
-    setLoading(true);
-    try {
-      const res = await fetch(
-        `/api/product-availability?page=${pageNum}&limit=${limit}&sku=${sku}&location=${location}&name=${name}`
-      );
-      const result = await res.json();
-      const list = result.ProductAvailabilityList || [];
-
-      const grouped = Object.values(
-        list.reduce((acc, item) => {
-          if (!acc[item.SKU])
-            acc[item.SKU] = { ...item, Location: [item.Location] };
-          else {
-            acc[item.SKU].OnHand += item.OnHand || 0;
-            acc[item.SKU].Allocated += item.Allocated || 0;
-            acc[item.SKU].Available += item.Available || 0;
-            acc[item.SKU].OnOrder += item.OnOrder || 0;
-            acc[item.SKU].StockOnHand += parseInt(item.StockOnHand) || 0;
-            acc[item.SKU].InTransit += item.InTransit || 0;
-            // acc[item.SKU].Location += `, ${item.Location}`;
-            if (!acc[item.SKU].Location.includes(item.Location)) {
-              acc[item.SKU].Location.push(item.Location);
-            }
-          }
-          return acc;
-        }, {})
-      );
-      setProducts(grouped);
-      setTotalRecords(sku || name ? grouped.length:result.Total || grouped.length);
-    } catch (err) {
-      console.error("Error loading products:", err);
-      setProducts([]);
-      setTotalRecords(0);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  
   const parseYearMonth = (str) => {
     const [year, monthStr] = str.split("-");
     return new Date(`${monthStr} 1, ${year}`);
   };
 
   const getMonthlyDueInOutForSKU = (sku, location) => {
+    console.log("Processing SKU:", sku, "at location:", location);
+    
     const result = {};
     Object.entries(dueInOrders).forEach(([month, orders]) => {
       console.log("Checking dueIn month:", month);
@@ -220,6 +242,8 @@ export default function ProductTable() {
       );
 
       inOrders.forEach((order) => {
+        console.log("Order RequireBy:", order.requireby, "Location:", order.Location);
+
         order.orders.forEach((line) => {
           if (line.SKU === sku && order.Location === location) {
             const normalizedOrderLoc = normalizeLocation(order.Location);
@@ -236,7 +260,7 @@ export default function ProductTable() {
               if (!result[month]) {
                 result[month] = { dueIn: 0, dueOut: 0, refs: [] };
               }
-              result[month].dueOut += line.Quantity;
+              result[month].dueIn += line.Quantity;
               if (!result[month].refs.includes(order.orderNumber)) {
                 result[month].refs.push(order.orderNumber);
               }
@@ -252,10 +276,11 @@ export default function ProductTable() {
       );
 
       outOrders.forEach((order) => {
+        console.log("Order RequireBy:", order.shipby, "Location:", order.Location);
         order.orders.forEach((line) => {
           if (line.SKU === sku && order.Location === location) {
             const normalizedOrderLoc = normalizeLocation(order.Location);
-            const normalizedSelectedLoc = normalizeLocation(selectedLocation);
+            const normalizedSelectedLoc = normalizeLocation(location);
             const isMatching = normalizedOrderLoc === normalizedSelectedLoc;
 
             console.log(`[SO] SKU: ${sku}`);
@@ -294,6 +319,8 @@ export default function ProductTable() {
   };
 
   const handleSOHClick = async (sku, selectedLocation) => {
+    console.log("Clicked SKU:", sku, "selected location:", selectedLocation);
+
     try {
       setPopupLoading(true);
       setPopupData([]);
@@ -311,7 +338,7 @@ export default function ProductTable() {
         .filter(
           (order) =>
             new Date(order.requireby) < today &&
-            order.Location === selectedLocation &&
+           normalizeLocation(order.Location) === normalizeLocation(selectedLocation) &&
             order.orders.some((line) => line.SKU === sku)
         );
 
@@ -405,7 +432,7 @@ export default function ProductTable() {
     }, 500);
 
     return () => clearTimeout(searchTimeout.current);
-  }, [rowsPerPage, skuSearch, selectedLocation, nameSearch]);
+  }, [page, rowsPerPage, skuSearch, selectedLocation, nameSearch]);
 
   const handlePageChange = (_, newPage) => setPage(newPage);
   const handleRowsPerPageChange = (e) => {
