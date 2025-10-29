@@ -29,9 +29,6 @@ export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
 
-    const Page = parseInt(searchParams.get("page") || "1", 10);
-    const Limit = parseInt(searchParams.get("limit") || "50", 10);
-
     const params = {
       Search: searchParams.get("Search") || "",
       OrderStatus: searchParams.get("OrderStatus") || "AUTHORISED",
@@ -44,22 +41,25 @@ export async function GET(request) {
     };
 
     const queryString = Object.entries(params)
+      .filter(([_, value]) => value !== "")
       .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
       .join("&");
 
-    const listUrl = `${DEAR_API_BASE}/purchaseList?Page=${Page}&Limit=${Limit}&${queryString}`;
-    const listData = await fetchDearApi(listUrl);
-    const purchaseList = listData.PurchaseList || [];
-    const MAX_CONCURRENT = 5;
     const fullDetails = [];
+    const limit = 100; // DEAR's page limit
+    let page = 1;
 
-    for (let i = 0; i < purchaseList.length; i += MAX_CONCURRENT) {
-      const chunk = purchaseList.slice(i, i + MAX_CONCURRENT);
+    while (true) {
+      const listUrl = `${DEAR_API_BASE}/purchaseList?Page=${page}&Limit=${limit}&${queryString}`;
+      const listData = await fetchDearApi(listUrl);
+      const purchaseList = listData.PurchaseList || [];
+
+      if (purchaseList.length === 0) break;
+
       const results = await Promise.allSettled(
-        chunk.map(async (order) => {
-          const url = `${DEAR_API_BASE}/advanced-purchase?ID=${order.ID}`;
-          return fetchDearApi(url);
-        })
+        purchaseList.map((order) =>
+          fetchDearApi(`${DEAR_API_BASE}/advanced-purchase?ID=${order.ID}`)
+        )
       );
 
       results.forEach((r) => {
@@ -72,13 +72,14 @@ export async function GET(request) {
           fullDetails.push(r.value);
         }
       });
+
+      if (purchaseList.length < limit) break;
+      page++;
     }
 
     return NextResponse.json({
-      totalOrders: listData.Total || 0,
+      totalOrders: fullDetails.length,
       purchaseOrders: fullDetails,
-      page: Page,
-      limit: Limit,
     });
   } catch (error) {
     console.error("Error fetching purchase orders:", error);

@@ -72,8 +72,9 @@ const purchaseCache = useRef({});
 const salesCache = useRef({});
 const productCache = useRef({});
 
-const loadDueInOrders = async (pageNum = 1, limit = 50) => {
-  const cacheKey = `${pageNum}-${limit}-${location}`;
+const loadDueInOrders = async () => {
+  // const cacheKey = `${pageNum}-${limit}-${location}`;
+  const cacheKey=`all-purchase-orders`;
   if (purchaseCache.current[cacheKey]) {
     setDueInOrders(purchaseCache.current[cacheKey]);
     return;
@@ -82,7 +83,7 @@ const loadDueInOrders = async (pageNum = 1, limit = 50) => {
   setDueInLoading(true);
   try {
     const res = await fetch(
-      `/api/purchase_orders?OrderStatus=AUTHORISED&RestockReceivedStatus=DRAFT&page=${pageNum}&limit=${limit}`
+      `/api/purchase_orders?OrderStatus=AUTHORISED&RestockReceivedStatus=DRAFT`
     );
     if (!res.ok) throw new Error("Failed to fetch due-in orders");
     const data = await res.json();
@@ -118,8 +119,9 @@ const loadDueInOrders = async (pageNum = 1, limit = 50) => {
   }
 };
 
-const loadDueOutOrders = async (pageNum = 1, limit = 50) => {
-  const cacheKey = `${pageNum}-${limit}`;
+const loadDueOutOrders = async () => {
+  // const cacheKey = `${pageNum}-${limit}`;
+  const cacheKey = `all-sale0-orders`;
   if (salesCache.current[cacheKey]) {
     setDueOutOrders(salesCache.current[cacheKey]);
     return;
@@ -128,7 +130,7 @@ const loadDueOutOrders = async (pageNum = 1, limit = 50) => {
   setDueOutLoading(true);
   try {
     const res = await fetch(
-      `/api/sale_orders?OrderStatus=AUTHORISED&FulfilmentStatus=NOTFULFILLED&page=${pageNum}&limit=${limit}`
+      `/api/sale_orders?OrderStatus=AUTHORISED&FulfilmentStatus=NOTFULFILLED`
     );
     if (!res.ok) throw new Error("Failed to fetch due-out orders");
     const data = await res.json();
@@ -225,6 +227,7 @@ const loadLocations = async () => {
       setLocations([]);
     }
   };
+
   
   const parseYearMonth = (str) => {
     const [year, monthStr] = str.split("-");
@@ -250,11 +253,6 @@ const loadLocations = async () => {
             const normalizedSelectedLoc = normalizeLocation(location);
             const isMatching = normalizedOrderLoc === normalizedSelectedLoc;
 
-            console.log(`[PO] SKU: ${sku}`);
-            console.log("  → Order Location:", order.Location);
-            console.log("  → Selected Location:", location);
-            console.log("  → Normalized Match:", isMatching);
-            console.log("  → Order Number:", order.orderNumber);
 
             if (isMatching) {
               if (!result[month]) {
@@ -283,11 +281,6 @@ const loadLocations = async () => {
             const normalizedSelectedLoc = normalizeLocation(location);
             const isMatching = normalizedOrderLoc === normalizedSelectedLoc;
 
-            console.log(`[SO] SKU: ${sku}`);
-            console.log("  → Order Location:", order.Location);
-            console.log("  → Selected Location:", selectedLocation);
-            console.log("  → Normalized Match:", isMatching);
-            console.log("  → Order Number:", order.orderNumber);
 
             if (isMatching) {
               if (!result[month]) {
@@ -302,7 +295,7 @@ const loadLocations = async () => {
         });
       });
     });
-
+    
     let ots = 0;
     return Object.entries(result)
       .sort(([a], [b]) => parseYearMonth(a) - parseYearMonth(b))

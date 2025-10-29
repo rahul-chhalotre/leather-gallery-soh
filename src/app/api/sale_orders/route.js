@@ -29,14 +29,10 @@ export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
 
-    const Page = parseInt(searchParams.get("page") || "1", 10);
-    const Limit = parseInt(searchParams.get("limit") || "50", 10);
-
-    // Collect all query params from frontend (optional)
     const params = {
       Search: searchParams.get("Search") || "",
-      OrderStatus: searchParams.get("OrderStatus") || "", // fetch all statuses
-      FulfilmentStatus: searchParams.get("FulfilmentStatus") || "", // fetch all fulfilment
+      OrderStatus: searchParams.get("OrderStatus") || "",
+      FulfilmentStatus: searchParams.get("FulfilmentStatus") || "",
       QuoteStatus: searchParams.get("QuoteStatus") || "",
       CombinedPickStatus: searchParams.get("CombinedPickStatus") || "",
       CombinedPackStatus: searchParams.get("CombinedPackStatus") || "",
@@ -48,41 +44,38 @@ export async function GET(request) {
     };
 
     const queryString = Object.entries(params)
+      .filter(([_, value]) => value !== "")
       .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
       .join("&");
 
-    // Fetch sale list
-    const listUrl = `${DEAR_API_BASE}/saleList?Page=${Page}&Limit=${Limit}&${queryString}`;
-    const listData = await fetchDearApi(listUrl);
-    const saleList = listData.SaleList || [];
-
-    console.log("Raw sale list:", saleList); // Debug log
-
-    const MAX_CONCURRENT = 5;
     const fullDetails = [];
+    const limit = 100; // DEAR's max per page
+    let page = 1;
 
-    // Fetch details in parallel
-    for (let i = 0; i < saleList.length; i += MAX_CONCURRENT) {
-      const chunk = saleList.slice(i, i + MAX_CONCURRENT);
+    while (true) {
+      const listUrl = `${DEAR_API_BASE}/saleList?Page=${page}&Limit=${limit}&${queryString}`;
+      const listData = await fetchDearApi(listUrl);
+      const saleList = listData.SaleList || [];
+
+      if (saleList.length === 0) break;
+
       const results = await Promise.allSettled(
-        chunk.map(async (order) => {
-          const url = `${DEAR_API_BASE}/sale?ID=${order.SaleID}`;
-          return fetchDearApi(url);
-        })
+        saleList.map((order) =>
+          fetchDearApi(`${DEAR_API_BASE}/sale?ID=${order.SaleID}`)
+        )
       );
 
       results.forEach((r) => {
-        if (r.status === "fulfilled") {
-          fullDetails.push(r.value); // Remove previous filters
-        }
+        if (r.status === "fulfilled") fullDetails.push(r.value);
       });
+
+      if (saleList.length < limit) break;
+      page++;
     }
 
     return NextResponse.json({
-      totalOrders: listData.Total || 0,
+      totalOrders: fullDetails.length,
       saleOrders: fullDetails,
-      page: Page,
-      limit: Limit,
     });
   } catch (error) {
     console.error("Error fetching sale orders:", error);
