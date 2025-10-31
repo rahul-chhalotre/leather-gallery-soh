@@ -2,22 +2,30 @@
   "name": "leather-gallery-soh",
   "version": "0.1.0",
   "private": true,
+   "type": "module",
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "export": "next export",
+    "build:extension": "next build && next export && cp -r out/* extension/"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@mui/material": "^7.3.4",
+    "dotenv": "^17.2.3",
+    "mongoose": "^8.19.2",
     "next": "15.5.4",
+    "node-cron": "^4.2.1",
+    "node-fetch": "^3.3.2",
     "react": "19.1.0",
     "react-dom": "19.1.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "@types/node": "24.9.1",
     "eslint": "^9",
     "eslint-config-next": "15.5.4"
   }
