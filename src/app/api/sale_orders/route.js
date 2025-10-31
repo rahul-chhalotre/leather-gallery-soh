@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { connectToDB } from "../../../lib/mongodb";
+import SaleOrder from "../../../models/SaleOrder";
 
 const DEAR_API_BASE = "https://inventory.dearsystems.com/ExternalApi/v2";
 const ACCOUNT_ID = process.env.DEAR_API_ACCOUNT_ID;
@@ -17,9 +19,7 @@ async function fetchDearApi(url) {
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(
-      `DEAR API request failed: ${res.status} ${res.statusText} - ${text}`
-    );
+    throw new Error(`DEAR API request failed: ${res.status} ${res.statusText} - ${text}`);
   }
 
   return res.json();
@@ -27,11 +27,26 @@ async function fetchDearApi(url) {
 
 export async function GET(request) {
   try {
-    const { searchParams } = new URL(request.url);
+    await connectToDB();
 
+    const { searchParams } = new URL(request.url);
+    const forceRefresh = searchParams.get("refresh") === "true";
+
+    // Check existing Sale Orders in DB
+    const existingOrders = await SaleOrder.find().lean();
+    if (existingOrders.length > 0 && !forceRefresh) {
+      return NextResponse.json({
+        source: "database",
+        totalOrdersFetched: 0,
+        totalOrdersInDB: existingOrders.length,
+        saleOrders: existingOrders.map((o) => o.Order),
+      });
+    }
+
+    // Build query parameters
     const params = {
       Search: searchParams.get("Search") || "",
-      OrderStatus: searchParams.get("OrderStatus") || "",
+      OrderStatus: searchParams.get("OrderStatus") || "AUTHORISED",
       FulfilmentStatus: searchParams.get("FulfilmentStatus") || "",
       QuoteStatus: searchParams.get("QuoteStatus") || "",
       CombinedPickStatus: searchParams.get("CombinedPickStatus") || "",
@@ -44,39 +59,71 @@ export async function GET(request) {
     };
 
     const queryString = Object.entries(params)
-      .filter(([_, value]) => value !== "")
-      .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+      .filter(([_, v]) => v)
+      .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
       .join("&");
 
     const fullDetails = [];
-    const limit = 100; // DEAR's max per page
+    const limit = 100;
     let page = 1;
 
     while (true) {
       const listUrl = `${DEAR_API_BASE}/saleList?Page=${page}&Limit=${limit}&${queryString}`;
       const listData = await fetchDearApi(listUrl);
       const saleList = listData.SaleList || [];
-
       if (saleList.length === 0) break;
 
       const results = await Promise.allSettled(
-        saleList.map((order) =>
-          fetchDearApi(`${DEAR_API_BASE}/sale?ID=${order.SaleID}`)
-        )
+        saleList.map(order => fetchDearApi(`${DEAR_API_BASE}/sale?ID=${order.SaleID}`))
       );
 
-      results.forEach((r) => {
-        if (r.status === "fulfilled") fullDetails.push(r.value);
-      });
+      for (const r of results) {
+        if (r.status === "fulfilled") {
+          const sale = r.value;
+          if (!sale.ID) continue;
+
+          // --- Calculate RemainingOut (for open orders still not shipped) ---
+          const totalOrdered = sale.Lines?.reduce((sum, line) => sum + (line.Quantity || 0), 0) || 0;
+          const totalShipped = sale.Fulfilments?.reduce((sum, f) => 
+            sum + (f.Lines?.reduce((lsum, l) => lsum + (l.QuantityShipped || 0), 0) || 0), 0
+          ) || 0;
+          const remainingOut = totalOrdered - totalShipped;
+
+          sale.RemainingOut = remainingOut;
+
+          fullDetails.push(sale);
+
+          // Upsert into MongoDB
+          await SaleOrder.findOneAndUpdate(
+            { SaleID: sale.ID },
+            {
+              SaleID: sale.ID,
+              Customer: sale.Customer,
+              OrderStatus: sale.OrderStatus,
+              FulfilmentStatus: sale.FulfilmentStatus,
+              CombinedInvoiceStatus: sale.CombinedInvoiceStatus,
+              ShipBy: sale.ShipBy,
+              Location: sale.Location,
+              Order: sale,
+              RemainingOut: remainingOut,
+            },
+            { upsert: true, new: true }
+          );
+        }
+      }
 
       if (saleList.length < limit) break;
       page++;
     }
 
+    const totalOrdersInDB = await SaleOrder.countDocuments();
     return NextResponse.json({
-      totalOrders: fullDetails.length,
+      source: "DEAR",
+      totalOrdersFetched: fullDetails.length,
+      totalOrdersInDB,
       saleOrders: fullDetails,
     });
+
   } catch (error) {
     console.error("Error fetching sale orders:", error);
     return NextResponse.json(

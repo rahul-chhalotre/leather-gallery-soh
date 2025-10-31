@@ -68,17 +68,17 @@ export default function ProductTable() {
     { Name: "Deco Park Warehouse" },
   ];
 
-const purchaseCache = useRef({});
-const salesCache = useRef({});
-const productCache = useRef({});
+// const purchaseCache = useRef({});
+// const salesCache = useRef({});
+// const productCache = useRef({});
 
 const loadDueInOrders = async () => {
   // const cacheKey = `${pageNum}-${limit}-${location}`;
-  const cacheKey=`all-purchase-orders`;
-  if (purchaseCache.current[cacheKey]) {
-    setDueInOrders(purchaseCache.current[cacheKey]);
-    return;
-  }
+  // const cacheKey=`all-purchase-orders`;
+  // if (purchaseCache.current[cacheKey]) {
+  //   setDueInOrders(purchaseCache.current[cacheKey]);
+  //   return;
+  // }
 
   setDueInLoading(true);
   try {
@@ -97,20 +97,21 @@ const loadDueInOrders = async () => {
     const groupedOrders = allOrders.reduce((acc, order) => {
       if (!order.RequiredBy) return acc;
       const month = getYearMonth(order.RequiredBy);
+      
       acc[month] = acc[month] || [];
       acc[month].push({
         Location: (order.Location),
         requireby: order.RequiredBy,
         orderNumber: order.OrderNumber,
         orders: order.Order.Lines.map((line) => ({
-          SKU: line.SKU,
-          Quantity: line.Quantity,
-        })),
+            SKU: line.SKU,
+            Quantity: line.Quantity,
+          })),
       });
       return acc;
     }, {});
 
-    purchaseCache.current[cacheKey] = groupedOrders; 
+    // purchaseCache.current[cacheKey] = groupedOrders; 
     setDueInOrders(groupedOrders);
   } catch (err) {
     console.error("Error fetching due-in orders:", err);
@@ -120,12 +121,12 @@ const loadDueInOrders = async () => {
 };
 
 const loadDueOutOrders = async () => {
-  // const cacheKey = `${pageNum}-${limit}`;
-  const cacheKey = `all-sale0-orders`;
-  if (salesCache.current[cacheKey]) {
-    setDueOutOrders(salesCache.current[cacheKey]);
-    return;
-  }
+  // // const cacheKey = `${pageNum}-${limit}`;
+  // const cacheKey = `all-sale0-orders`;
+  // if (salesCache.current[cacheKey]) {
+  //   setDueOutOrders(salesCache.current[cacheKey]);
+  //   return;
+  // }
 
   setDueOutLoading(true);
   try {
@@ -135,7 +136,7 @@ const loadDueOutOrders = async () => {
     if (!res.ok) throw new Error("Failed to fetch due-out orders");
     const data = await res.json();
     const allOrders = data.saleOrders || [];
-    
+
     const getYearMonth = (dateString) => {
       const date = new Date(dateString);
       return `${date.getFullYear()}-${date.toLocaleString("default", { month: "short" })}`;
@@ -150,14 +151,14 @@ const loadDueOutOrders = async () => {
         shipby: order.ShipBy,
         orderNumber: order.Order.SaleOrderNumber,
         orders: order.Order.Lines.map((line) => ({
-          SKU: line.SKU,
-          Quantity: line.Quantity,
-        })),
+            SKU: line.SKU,
+            Quantity: line.Quantity,
+          })),
       });
       return acc;
     }, {});
 
-    salesCache.current[cacheKey] = groupedOrders; 
+    // salesCache.current[cacheKey] = groupedOrders; 
     setDueOutOrders(groupedOrders);
   } catch (err) {
     console.error("Error fetching due-out orders:", err);
@@ -167,13 +168,13 @@ const loadDueOutOrders = async () => {
 };
 
 const loadProducts = async (pageNum, limit, sku, location, name) => {
-  const cacheKey = `${pageNum}-${limit}-${sku}-${location}-${name}`;
-  if (productCache.current[cacheKey]) {
-    const cached = productCache.current[cacheKey];
-    setProducts(cached.products);
-    setTotalRecords(cached.total);
-    return;
-  }
+  // const cacheKey = `${pageNum}-${limit}-${sku}-${location}-${name}`;
+  // if (productCache.current[cacheKey]) {
+  //   const cached = productCache.current[cacheKey];
+  //   setProducts(cached.products);
+  //   setTotalRecords(cached.total);
+  //   return;
+  // }
 
   setLoading(true);
   try {
@@ -205,7 +206,7 @@ const loadProducts = async (pageNum, limit, sku, location, name) => {
     );
 
     const total = sku || name ? grouped.length : result.Total || grouped.length;
-    productCache.current[cacheKey] = { products: grouped, total }; 
+    // productCache.current[cacheKey] = { products: grouped, total }; 
     setProducts(grouped);
     setTotalRecords(total);
   } catch (err) {
@@ -311,100 +312,100 @@ const loadLocations = async () => {
       });
   };
 
-  const handleSOHClick = async (sku, selectedLocation) => {
-    console.log("Clicked SKU:", sku, "selected location:", selectedLocation);
+ const handleSOHClick = async (sku, selectedLocation) => {
+  console.log("Clicked SKU:", sku, "selected location:", selectedLocation);
 
     try {
-      setPopupLoading(true);
-      setPopupData([]);
-      setOpenPopup(true);
+  setPopupLoading(true);
+  setPopupData([]);
+  setOpenPopup(true);
 
-      const product = products.find((p) => p.SKU === sku);
-      const OnHand = product?.OnHand ?? 0;
+    const product = products.find((p) => p.SKU === sku);
+    const OnHand = product?.OnHand ?? 0;
 
-      const monthlyData = getMonthlyDueInOutForSKU(sku, selectedLocation);
+    const monthlyData = getMonthlyDueInOutForSKU(sku, selectedLocation);
 
-      const today = new Date();
+    const today = new Date();
 
-      const pastDueIn = Object.values(dueInOrders)
-        .flat()
-        .filter(
-          (order) =>
-            new Date(order.requireby) < today &&
-           normalizeLocation(order.Location) === normalizeLocation(selectedLocation) &&
-            order.orders.some((line) => line.SKU === sku)
-        );
+    const pastDueIn = Object.values(dueInOrders)
+      .flat()
+      .filter(
+        (order) =>
+          new Date(order.requireby) < today &&
+          normalizeLocation(order.Location) === normalizeLocation(selectedLocation) &&
+          order.orders.some((line) => line.SKU === sku)
+      );
 
-      const pastDueOut = Object.values(dueOutOrders)
-        .flat()
-        .filter(
-          (order) =>
-            new Date(order.shipby) < today &&
+    const pastDueOut = Object.values(dueOutOrders)
+      .flat()
+      .filter(
+        (order) =>
+          new Date(order.shipby) < today &&
             order.Location === selectedLocation &&
-            order.orders.some((line) => line.SKU === sku)
-        );
+          order.orders.some((line) => line.SKU === sku)
+      );
 
-      const totalPastDueIn = pastDueIn.reduce((sum, order) => {
-        return (
-          sum +
-          order.orders
-            .filter((line) => line.SKU === sku)
-            .reduce((s, line) => s + line.Quantity, 0)
-        );
-      }, 0);
+    const totalPastDueIn = pastDueIn.reduce((sum, order) => {
+      return (
+        sum +
+        order.orders
+          .filter((line) => line.SKU === sku)
+          .reduce((s, line) => s + line.Quantity, 0)
+      );
+    }, 0);
 
-      const totalPastDueOut = pastDueOut.reduce((sum, order) => {
-        return (
-          sum +
-          order.orders
-            .filter((line) => line.SKU === sku)
-            .reduce((s, line) => s + line.Quantity, 0)
-        );
-      }, 0);
+    const totalPastDueOut = pastDueOut.reduce((sum, order) => {
+      return (
+        sum +
+        order.orders
+          .filter((line) => line.SKU === sku)
+          .reduce((s, line) => s + line.Quantity, 0)
+      );
+    }, 0);
 
-      const sohEntry = {
-        month: "SOH",
-        dueIn: OnHand,
-        dueOut: "",
-        ots: OnHand,
-        refs: [],
-      };
-      const lateRefs = [
-        ...new Set([
-          ...pastDueIn.map((order) => order.orderNumber),
-          ...pastDueOut.map((order) => order.orderNumber),
-        ]),
-      ];
+    const sohEntry = {
+      month: "SOH",
+      dueIn: OnHand,
+      dueOut: "",
+      ots: OnHand,
+      refs: [],
+    };
+    const lateRefs = [
+      ...new Set([
+        ...pastDueIn.map((order) => order.orderNumber),
+        ...pastDueOut.map((order) => order.orderNumber),
+      ]),
+    ];
 
-      const dueEntry = {
-        month: "Late Orders",
-        dueIn: totalPastDueIn,
-        dueOut: totalPastDueOut,
-        ots: OnHand + totalPastDueIn - totalPastDueOut,
-        refs: lateRefs,
-      };
+    const dueEntry = {
+      month: "Late Orders",
+      dueIn: totalPastDueIn,
+      dueOut: totalPastDueOut,
+      ots: OnHand + totalPastDueIn - totalPastDueOut,
+      refs: lateRefs,
+    };
 
-      let currentOTS = dueEntry.ots;
-      const computedData = monthlyData.map((entry) => {
-        const inQty = parseInt(entry.dueIn) || 0;
-        const outQty = parseInt(entry.dueOut) || 0;
-        currentOTS += inQty - outQty;
+    let currentOTS = dueEntry.ots;
+    const computedData = monthlyData.map((entry) => {
+      const inQty = parseInt(entry.dueIn) || 0;
+      const outQty = parseInt(entry.dueOut) || 0;
+      currentOTS += inQty - outQty;
 
         return {
           ...entry,
           ots: currentOTS,
         };
-      });
+    });
 
       console.log("Final popupData:", [sohEntry, dueEntry, ...computedData]);
-      setPopupData([sohEntry, dueEntry, ...computedData]);
-    } catch (err) {
+    setPopupData([sohEntry, dueEntry, ...computedData]);
+  } catch (err) {
       console.error("Error fetching SOH popup data:", err);
       setPopupData([]);
-    } finally {
-      setPopupLoading(false);
-    }
-  };
+  } finally {
+    setPopupLoading(false);
+  }
+};
 
   useEffect(() => {
     loadDueInOrders();
