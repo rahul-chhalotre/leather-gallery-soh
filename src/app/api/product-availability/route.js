@@ -21,6 +21,7 @@ export async function GET(request) {
         "api-auth-accountid": API_AUTH_ACCOUNT_ID,
         "api-auth-applicationkey": API_AUTH_APPLICATION_KEY,
       },
+       cache: "no-store",
     });
 
     if (!response.ok) {

@@ -52,20 +52,15 @@ export default function ProductTable() {
   const [dueOutLoading, setDueOutLoading] = useState(false);
 
   useEffect(() => {
-  const updateFromUrl = () => {
     const params = new URLSearchParams(window.location.search);
     const searchQuery = params.get("search") || "";
+    // const nameQuery = params.get("name") || "";
     const locationQuery = params.get("Location") || "";
 
     if (searchQuery) setSkuSearch(searchQuery);
+    // if (nameQuery) setNameSearch(nameQuery);
     if (locationQuery) setSelectedLocation(locationQuery);
-  };
-
-  updateFromUrl(); // run once immediately
-  window.addEventListener("popstate", updateFromUrl);
-
-  return () => window.removeEventListener("popstate", updateFromUrl);
-}, []);
+  }, []);
 
 
   const searchTimeout = useRef(null);
