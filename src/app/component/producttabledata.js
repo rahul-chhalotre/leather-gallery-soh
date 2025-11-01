@@ -22,6 +22,7 @@ import {
   Typography,
   Skeleton,
 } from "@mui/material";
+import { useSearchParams } from "next/navigation";
 
 // const normalizeLocation = (loc) => loc.replace(/\s+/g, "").toLowerCase();
 const normalizeLocation = (loc) =>
@@ -51,16 +52,15 @@ export default function ProductTable() {
   const [dueOutOrders, setDueOutOrders] = useState([]);
   const [dueOutLoading, setDueOutLoading] = useState(false);
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const searchQuery = params.get("search") || "";
-    // const nameQuery = params.get("name") || "";
-    const locationQuery = params.get("Location") || "";
+  const searchParams = useSearchParams();
 
-    if (searchQuery) setSkuSearch(searchQuery);
-    // if (nameQuery) setNameSearch(nameQuery);
-    if (locationQuery) setSelectedLocation(locationQuery);
-  }, []);
+  useEffect(() => {
+    const searchQuery = searchParams.get("search") || "";
+    const locationQuery = searchParams.get("Location") || "";
+
+    setSkuSearch(searchQuery);
+    setSelectedLocation(locationQuery);
+  }, [searchParams]);
 
 
   const searchTimeout = useRef(null);
