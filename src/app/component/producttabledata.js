@@ -52,15 +52,21 @@ export default function ProductTable() {
   const [dueOutLoading, setDueOutLoading] = useState(false);
 
   useEffect(() => {
+  const updateFromUrl = () => {
     const params = new URLSearchParams(window.location.search);
     const searchQuery = params.get("search") || "";
-    // const nameQuery = params.get("name") || "";
     const locationQuery = params.get("Location") || "";
 
     if (searchQuery) setSkuSearch(searchQuery);
-    // if (nameQuery) setNameSearch(nameQuery);
     if (locationQuery) setSelectedLocation(locationQuery);
-  }, []);
+  };
+
+  updateFromUrl(); // run once immediately
+  window.addEventListener("popstate", updateFromUrl);
+
+  return () => window.removeEventListener("popstate", updateFromUrl);
+}, []);
+
 
   const searchTimeout = useRef(null);
   const locationOptions = [
@@ -68,17 +74,8 @@ export default function ProductTable() {
     { Name: "Deco Park Warehouse" },
   ];
 
-// const purchaseCache = useRef({});
-// const salesCache = useRef({});
-// const productCache = useRef({});
 
 const loadDueInOrders = async () => {
-  // const cacheKey = `${pageNum}-${limit}-${location}`;
-  // const cacheKey=`all-purchase-orders`;
-  // if (purchaseCache.current[cacheKey]) {
-  //   setDueInOrders(purchaseCache.current[cacheKey]);
-  //   return;
-  // }
 
   setDueInLoading(true);
   try {
@@ -111,7 +108,7 @@ const loadDueInOrders = async () => {
       return acc;
     }, {});
 
-    // purchaseCache.current[cacheKey] = groupedOrders; 
+
     setDueInOrders(groupedOrders);
   } catch (err) {
     console.error("Error fetching due-in orders:", err);
@@ -121,12 +118,6 @@ const loadDueInOrders = async () => {
 };
 
 const loadDueOutOrders = async () => {
-  // // const cacheKey = `${pageNum}-${limit}`;
-  // const cacheKey = `all-sale0-orders`;
-  // if (salesCache.current[cacheKey]) {
-  //   setDueOutOrders(salesCache.current[cacheKey]);
-  //   return;
-  // }
 
   setDueOutLoading(true);
   try {
@@ -158,7 +149,6 @@ const loadDueOutOrders = async () => {
       return acc;
     }, {});
 
-    // salesCache.current[cacheKey] = groupedOrders; 
     setDueOutOrders(groupedOrders);
   } catch (err) {
     console.error("Error fetching due-out orders:", err);
@@ -168,14 +158,7 @@ const loadDueOutOrders = async () => {
 };
 
 const loadProducts = async (pageNum, limit, sku, location, name) => {
-  // const cacheKey = `${pageNum}-${limit}-${sku}-${location}-${name}`;
-  // if (productCache.current[cacheKey]) {
-  //   const cached = productCache.current[cacheKey];
-  //   setProducts(cached.products);
-  //   setTotalRecords(cached.total);
-  //   return;
-  // }
-
+  
   setLoading(true);
   try {
     const res = await fetch(
@@ -206,7 +189,6 @@ const loadProducts = async (pageNum, limit, sku, location, name) => {
     );
 
     const total = sku || name ? grouped.length : result.Total || grouped.length;
-    // productCache.current[cacheKey] = { products: grouped, total }; 
     setProducts(grouped);
     setTotalRecords(total);
   } catch (err) {
