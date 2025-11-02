@@ -5,9 +5,9 @@
   functions = "netlify/functions"
 
 [[scheduled]]
-  name = "purchase-sync"
+  name = "update-purchase"
   cron = "0 */4 * * *"   
 
 [[scheduled]]
-  name = "sales-sync"
+  name = "update-sales-background"
   cron = "0 * * * *" 
