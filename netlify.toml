@@ -1,0 +1,13 @@
+[build]
+  functions = "netlify/functions"
+
+[dev]
+  functions = "netlify/functions"
+
+[[scheduled]]
+  name = "purchase-sync"
+  cron = "0 */4 * * *"   
+
+[[scheduled]]
+  name = "sales-sync"
+  cron = "0 * * * *" 
