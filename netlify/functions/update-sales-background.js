@@ -40,7 +40,7 @@ export async function handler(event, context) {
 
     while (true) {
       console.log(`[INFO] Fetching sale list page ${page}...`);
-      const listUrl = `${DEAR_API_BASE}/saleList?Page=${page}&Limit=${limit}`;
+      const listUrl = `${DEAR_API_BASE}/saleList?Page=${page}&Limit=${limit}&OrderStatus=AUTHORISED`;
       const listData = await fetchDearApi(listUrl);
 
       const saleList = listData.SaleList || [];
