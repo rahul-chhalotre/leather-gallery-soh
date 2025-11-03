@@ -9,7 +9,7 @@
   external_node_modules = ["mongoose"]  
 
 [[scheduled]]
-  name = "update-purchase"
+  name = "update-purchase-background"
   cron = "0 */4 * * *"   
 
 [[scheduled]]
