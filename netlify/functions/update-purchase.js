@@ -1,5 +1,6 @@
 import { connectToDB } from "../../src/lib/mongodb.js";
 import PurchaseOrder from "../../src/models/PurchaseOrder.js";
+const PurchaseOrder = PurchaseOrderModule.default || PurchaseOrderModule;
 
 const DEAR_API_BASE = "https://inventory.dearsystems.com/ExternalApi/v2";
 const ACCOUNT_ID = process.env.DEAR_API_ACCOUNT_ID;
