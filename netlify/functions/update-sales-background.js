@@ -29,6 +29,7 @@ async function fetchDearApi(url) {
 }
 
 export async function handler(event, context) {
+   console.log(`[SCHEDULED FUNCTION] update-sales-background triggered at: ${new Date().toISOString()}`);
   try {
     console.log("[DB] Connecting to MongoDB...");
     await connectToDB();

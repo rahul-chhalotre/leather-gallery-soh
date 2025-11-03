@@ -10,8 +10,8 @@
 
 [[scheduled]]
   name = "update-purchase"
-  cron = "0 */4 * * *"   
+  cron = "0/5 * * * *"   
 
 [[scheduled]]
   name = "update-sales-background"
-  cron = "0 * * * *" 
+  cron = "0/5 * * * *" 
