@@ -87,6 +87,7 @@ const loadDueInOrders = async () => {
     );
     if (!res.ok) throw new Error("Failed to fetch due-in orders");
     const data = await res.json();
+    console.log("All Purchase Data",data)
     const allOrders = data.purchaseOrders || [];
 
     const getYearMonth = (dateString) => {
@@ -135,7 +136,9 @@ const loadDueOutOrders = async () => {
     );
     if (!res.ok) throw new Error("Failed to fetch due-out orders");
     const data = await res.json();
+    console.log("all sales data",data)
     const allOrders = data.saleOrders || [];
+    
 
     const getYearMonth = (dateString) => {
       const date = new Date(dateString);

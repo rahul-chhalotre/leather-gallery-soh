@@ -9,7 +9,7 @@
   external_node_modules = ["mongoose"]  
 
 [functions."update-purchase"]
-schedule = "@hourly"
+schedule = "0 */4 * * *"
 
 [functions."update-sales"]
-schedule= "*/15 * * * *"  
+schedule= "*/30 * * * *"  
