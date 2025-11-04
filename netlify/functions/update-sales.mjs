@@ -1,10 +1,7 @@
-
-// netlify/functions/update-sales-scheduler.js
-
 export const handler = async (event, context) => {
   console.log("[Scheduler] Triggered update-sales-background...");
 
-  const res = await fetch(`$https://leather-gallery.netlify.app//.netlify/functions/update-sales-background`, {
+  const res = await fetch(`https://leather-gallery.netlify.app/.netlify/functions/update-sales-background`, {
     method: "POST",
   });
 
