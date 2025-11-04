@@ -8,9 +8,8 @@
   node_bundler = "esbuild"
   external_node_modules = ["mongoose"]  
 
-[[scheduled]]
-name = "update-purchase"
-cron = "0 */4 * * *"   
+[functions."update-purchase"]
+schedule = "@hourly"
 
 [[scheduled]]
 name = "update-sales"
