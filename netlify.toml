@@ -9,9 +9,9 @@
   external_node_modules = ["mongoose"]  
 
 [[scheduled]]
-name = "update-purchase-background"
-cron = "0 */4 * * *"   # Run every 4 hours (e.g., 12:00, 4:00, 8:00, etc.)
+name = "update-purchase"
+cron = "0 */4 * * *"   
 
 [[scheduled]]
-name = "update-sales-background"
-cron= "*/30 * * * *"  
+name = "update-sales"
+cron= "*/15 * * * *"  
