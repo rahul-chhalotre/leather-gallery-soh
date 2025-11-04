@@ -11,6 +11,5 @@
 [functions."update-purchase"]
 schedule = "@hourly"
 
-[[scheduled]]
-name = "update-sales"
-cron= "*/15 * * * *"  
+[functions."update-sales"]
+schedule= "*/15 * * * *"  
