@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
-import { getCustomerList, syncCustomersSequentially } from "../../services/shopify/index.js";
+import { 
+  getCustomer, 
+  syncCustomersSequentially, 
+  createDraftOrder 
+} from "../../services/shopify/index.js";
 
 // ---------------- GET: Fetch customers from Cin7 ----------------
 export async function GET() {
   try {
-    const customers = await getCustomerList(); // only fetch
+    const customers = await getCustomer();
     return NextResponse.json({
       success: true,
       message: "Fetched customers from Cin7 successfully",
@@ -20,13 +24,27 @@ export async function GET() {
   }
 }
 
-// ---------------- POST: Sync customers one-by-one to Shopify ----------------
+// ---------------- POST: Unified handler ----------------
 export async function POST() {
   try {
-    const result = await syncCustomersSequentially(); // sequential sync
-    return NextResponse.json(result);
+    // 👇 Call whichever function you want here.
+    // Example 1: Sync customers
+    const syncResult = await syncCustomersSequentially();
+
+    // Example 2: Create draft order afterwards (optional)
+    const draftOrder = await createDraftOrder();
+
+    return NextResponse.json({
+      success: true,
+      message: "Customers synced and draft order created successfully",
+      data: {
+        syncResult,
+        draftOrder,
+      },
+    });
+
   } catch (error) {
-    console.error("❌ Error syncing customers to Shopify:", error);
+    console.error("❌ Error in unified POST handler:", error);
     return NextResponse.json(
       { success: false, message: error.message },
       { status: 500 }
@@ -44,12 +62,14 @@ export async function POST() {
 
 
 
-// import { NextResponse } from "next/server";
-// import { getCustomer, syncCustomers } from "../../services/shopify/index.js";
 
+// import { NextResponse } from "next/server";
+// import { getCustomerList, syncCustomersSequentially , createDraftOrder } from "../../services/shopify/index.js";
+
+// // ---------------- GET: Fetch customers from Cin7 ----------------
 // export async function GET() {
 //   try {
-//     const customers = await getCustomer();
+//     const customers = await getCustomerList(); // only fetch
 //     return NextResponse.json({
 //       success: true,
 //       message: "Fetched customers from Cin7 successfully",
@@ -57,20 +77,42 @@ export async function POST() {
 //       customers,
 //     });
 //   } catch (error) {
-//     console.error("Error fetching customers:", error);
-//     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+//     console.error("❌ Error fetching customers:", error);
+//     return NextResponse.json(
+//       { success: false, message: error.message },
+//       { status: 500 }
+//     );
 //   }
 // }
 
+// // ---------------- POST: Sync customers one-by-one to Shopify ----------------
 // export async function POST() {
 //   try {
-//     // Fetch customers from Cin7 and sync to Shopify
-//     const customers = await getCustomer();
-//     const result = await syncCustomers(customers);
-
+//     const result = await syncCustomersSequentially(); // sequential sync
 //     return NextResponse.json(result);
 //   } catch (error) {
-//     console.error("Error syncing customers to Shopify:", error);
-//     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+//     console.error("❌ Error syncing customers to Shopify:", error);
+//     return NextResponse.json(
+//       { success: false, message: error.message },
+//       { status: 500 }
+//     );
+//   }
+// }
+
+
+
+// export async function POST() {
+//   try {
+//     const draftOrder = await createDraftOrder();
+//     return NextResponse.json({
+//       success: true,
+//       message: "Draft order created successfully",
+//       draftOrder,
+//     });
+//   } catch (error) {
+//     return NextResponse.json(
+//       { success: false, message: error.message },
+//       { status: 500 }
+//     );
 //   }
 // }
