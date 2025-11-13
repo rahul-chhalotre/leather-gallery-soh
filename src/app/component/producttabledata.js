@@ -24,6 +24,9 @@ import {
 } from "@mui/material";
 
 const normalizeLocation = (loc) => loc?.toLowerCase().replace(/\s+/g, "") || "";
+const API_AUTH_ACCOUNT_ID = "f8354924-2075-4fd3-8578-a64bf0b1b4c2";
+const API_AUTH_APPLICATION_KEY = "f4daba60-021e-66e9-43c2-df6a73740a65";
+
 
 export default function ProductTable() {
   const [products, setProducts] = useState([]);
@@ -170,13 +173,30 @@ export default function ProductTable() {
       const result = await res.json();
       const list = result.ProductAvailabilityList || [];
 
+      let data = []
+
+      if (list.length == 0) {
+        const p_url = `https://inventory.dearsystems.com/ExternalApi/v2/product?Sku=${sku}&IncludeBOM=true`
+        const response = await fetch(p_url, {
+          headers: {
+            "Content-Type": "application/json",
+            "api-auth-accountid": API_AUTH_ACCOUNT_ID,
+            "api-auth-applicationkey": API_AUTH_APPLICATION_KEY,
+          },
+          cache: "no-store",
+        });
+
+        const u_data = await response.json();
+        data = u_data.Products;
+      }
+
       const grouped = Object.values(
         list.reduce((acc, item) => {
           if (!acc[item.SKU]) {
             acc[item.SKU] = {
               ...item,
               Location: [item.Location],
-              ProductID: item.ProductID || item.ID,
+              ProductID: item.ProductID || item.ID ,
             };
           } else {
             acc[item.SKU].OnHand += item.OnHand || 0;
@@ -195,7 +215,8 @@ export default function ProductTable() {
 
       const total =
         sku || name ? grouped.length : result.Total || grouped.length;
-      setProducts(grouped);
+
+      (list.length == 0) ? setProducts(data) : setProducts(grouped);
       setTotalRecords(total);
     } catch (err) {
       console.error("Error loading products:", err);
@@ -406,6 +427,7 @@ export default function ProductTable() {
     return result.ots;
   };
   const handleSOHClick = async (sku, selectedLocation) => {
+
     try {
       setPopupLoading(true);
       setOpenPopup(true);
@@ -414,9 +436,7 @@ export default function ProductTable() {
       setBomLoading(true);
 
       const product = products.find((p) => p.SKU === sku);
-      console.log(product, "products");
       const OnHand = product?.OnHand ?? 0;
-      console.log(OnHand, "componentOnHand");
 
       const monthlyData = getMonthlyDueInOutForSKU(sku, selectedLocation);
       const today = new Date();
@@ -505,7 +525,7 @@ export default function ProductTable() {
       setPopupData([sohEntry, dueEntry, ...computedData]);
       setPopupData([sohEntry, dueEntry, ...computedData]);
 
-      const dearProductId = product?.ProductID;
+      const dearProductId = product?.ProductID || product?.ID;
       if (dearProductId) {
         const bomRes = await fetch(
           `/api/product?id=${dearProductId}&IncludeBOM=true`
@@ -521,7 +541,7 @@ export default function ProductTable() {
             bomList.map(async (comp) => {
               try {
                 const ress = await fetch(
-                  `/api/product-availability?page=1&limit=20&sku=${comp.ProductCode}&location=${selectedLocation}`
+                  `/api/product-availability?page=1&limit=50&sku=${comp.ProductCode}&location=${selectedLocation}`
                 );
                 if (!ress.ok) {
                   console.warn(
@@ -631,7 +651,7 @@ export default function ProductTable() {
                   name: list[0]?.Name || comp.Name,
                   bom_qty: comp.Quantity,
                   avail: (c_curentMonthOTS ?? dueEntry.ots) + totalAvailable,
-                  incoming: getOTS(compOTS, currentMonthKey),
+                  incoming: getOTS(compOTS,currentMonthKey) + c_curentMonthOTS,
                 };
               } catch (innerErr) {
                 console.error(
@@ -794,12 +814,12 @@ export default function ProductTable() {
             ) : (
               products.map((item, index) => (
                 <TableRow key={index}>
-                  <TableCell>{item.SKU}</TableCell>
-                  <TableCell>{item.Name}</TableCell>
-                  <TableCell>{item.OnHand}</TableCell>
-                  <TableCell>{item.Allocated}</TableCell>
-                  <TableCell>{item.Available}</TableCell>
-                  <TableCell>{item.OnOrder}</TableCell>
+                  <TableCell>{item?.SKU}</TableCell>
+                  <TableCell>{item?.Name}</TableCell>
+                  <TableCell>{item?.OnHand ?? 0}</TableCell>
+                  <TableCell>{item?.Allocated ?? 0}</TableCell>
+                  <TableCell>{item?.Available ?? 0}</TableCell>
+                  <TableCell>{item?.OnOrder ?? 0}</TableCell>
                   <TableCell>
                     <Button
                       variant="text"
@@ -813,7 +833,7 @@ export default function ProductTable() {
                       View OTS
                     </Button>
                   </TableCell>
-                  <TableCell>{item.InTransit}</TableCell>
+                  <TableCell>{item.InTransit ?? 0}</TableCell>
                 </TableRow>
               ))
             )}
@@ -977,13 +997,13 @@ export default function ProductTable() {
                             align="center"
                             style={{ border: "1px solid black" }}
                           >
-                            {/* {bomComponents.length
+                            {bomComponents.length
                               ? Math.min(
                                   ...bomComponents.map((comp) =>
-                                    Math.max(comp.avail ?? 0, 0)
+                                    Math.max(comp.incoming ?? 0, 0)
                                   )
                                 )
-                              : 0} */}
+                              : 0}
                           </TableCell>
                           {/* <TableCell align="right" style={{border:"1px solid black"}}>-</TableCell> */}
                         </TableRow>
