@@ -1,31 +1,10 @@
 
 import { connectToDB } from "../../../lib/mongodb.js"; 
 import SyncOrder from "../../../models/syncOrder.js"; 
-const DEAR_API_BASE = "https://inventory.dearsystems.com/ExternalApi/v2";
-const ACCOUNT_ID = process.env.DEAR_API_ACCOUNT_ID;
-const APP_KEY = process.env.DEAR_API_APPLICATION_KEY;
-const SHOPIFY_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
-const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
+import { fetchSaleApi } from "../dear-api/index.js";
+// const SHOPIFY_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
+// const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
 const ALLOWED_POS_LOCATIONS = ["Riverhorse Valley-Warehouse", "Deco Park Warehouse"];
-
-
-
-
-export async function fetchSaleApi(endpoint) {
-  const res = await fetch(`${DEAR_API_BASE}${endpoint}`, {
-    headers: {
-      "api-auth-accountid": ACCOUNT_ID,
-      "api-auth-applicationkey": APP_KEY,
-      "Content-Type": "application/json",
-    },
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`DEAR API Error: ${res.status} - ${err}`);
-  }
-  return res.json();
-}
-
 
 
 
@@ -35,10 +14,10 @@ export async function importSalesData() {
   // Fetch sales data from external API
   const listData = await fetchSaleApi("/saleList?Status=ESTIMATING");
   const saleList = listData.SaleList || [];
-  console.log(` ${saleList.length} sales found.`);
+//   console.log(` ${saleList.length} sales found.`);
 
   for (const sale of saleList) {
-    console.log(`\n🔍 Processing SaleID: ${sale.SaleID} `);
+    // console.log(`\n🔍 Processing SaleID: ${sale.SaleID} `);
     try {
       // Fetch full sale details
       const detailData = await fetchSaleApi(`/sale?ID=${sale.SaleID}`);
@@ -60,7 +39,26 @@ export async function importSalesData() {
 }
 
 
+export async function fetchSaleId(ID) {
+     await connectToDB();
+  try {
 
+    const sale_id = await SyncOrder.findOne({ ID: ID });
+
+console.log("Fetched Sale Order:", sale_id);
+    if (!sale_id) {
+      console.log("No record found for Sale ID:", ID);
+      return [];
+    }
+
+    return [sale_id];
+  } catch (error) {
+    console.error("Error fetching Saleid:", error);
+    return [];
+  }
+}
+
+fetchSaleId();
 
 
 

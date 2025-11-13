@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { 
   importSalesData, 
-} from "@/services/shopify/index.js";
+} from "@/app/services/shopify/index.js";
 
 export async function GET() {
   try {
@@ -13,7 +13,7 @@ export async function GET() {
    
     });
   } catch (error) {
-    console.error("❌ Error fetching customers:", error);
+    console.error("Error fetching customers:", error);
     return NextResponse.json(
       { success: false, message: error.message },
       { status: 500 }
