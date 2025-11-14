@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { 
   importSalesData, 
-} from "@/app/services/shopify/index.js";
+} from "../../services/shopify/index.js";
 
 export async function GET() {
   try {
