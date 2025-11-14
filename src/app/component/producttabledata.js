@@ -89,6 +89,7 @@ export default function ProductTable() {
         })}`;
       };
 
+      let c_data = [];
       const groupedOrders = allOrders.reduce((acc, order) => {
         if (order.Status !== "RECEIVED") {
           if (!order.RequiredBy) return acc;
@@ -102,11 +103,14 @@ export default function ProductTable() {
               SKU: line.SKU,
               Quantity: line.Quantity,
             })),
+            status: order.Status,
+            put_away: order.PutAway
           });
         }
         // console.log("group",groupedOrders);
         return acc;
       }, {});
+
       setDueInOrders(groupedOrders);
     } catch (err) {
       console.error("Error fetching due-in orders:", err);
@@ -138,23 +142,26 @@ export default function ProductTable() {
       );
 
       const groupedOrders = allOrders.reduce((acc, order) => {
-        if (!order.ShipBy) return acc;
+        if (order.Status !== 'COMPLETED') {
+          // if (!order.ShipBy) return acc;
 
-        const month = getYearMonth(order.ShipBy);
-        acc[month] = acc[month] || [];
-        acc[month].push({
-          Location: order.Location,
-          shipby: order.ShipBy,
-          orderNumber: order.Order.SaleOrderNumber,
-          orders: order.Order.Lines.map((line) => ({
-            SKU: line.SKU,
-            Quantity: line.Quantity,
-          })),
-        });
+          const month = getYearMonth(order.ShipBy);
+          acc[month] = acc[month] || [];
+          acc[month].push({
+            Location: order.Location,
+            shipby: order.ShipBy,
+            orderNumber: order.Order.SaleOrderNumber,
+            orders: order.Order.Lines.map((line) => ({
+              SKU: line.SKU,
+              Quantity: line.Quantity,
+            })),
+          });
+        }
         return acc;
       }, {});
 
       setDueOutOrders(groupedOrders);
+      console.log(groupedOrders,"groupOrders")
     } catch (err) {
       console.error("Error fetching due-out orders:", err);
     } finally {
@@ -304,6 +311,23 @@ export default function ProductTable() {
       });
   };
 
+  const getTotalQuantityForSKU = (order, sku) => {
+    let totalQuantity = 0;
+
+    // Loop through all putAway objects and then each line to sum quantities
+    for (const key in order.put_away) {
+        const lines = order.put_away[key].Lines;
+        for (const lineKey in lines) {
+            if (lines[lineKey].SKU === sku) {
+                totalQuantity += lines[lineKey].Quantity;
+            }
+        }
+    }
+
+    return totalQuantity;
+  };
+
+
   const computeOTSForSKU = (sku, location, OnHand = 0, parentOTS = 0) => {
     const ComponentOnHand = OnHand;
     console.log(ComponentOnHand, "ComponentOnHand");
@@ -328,14 +352,21 @@ export default function ProductTable() {
           order.orders.some((line) => line.SKU === sku)
       );
 
-    const totalPastDueIn = pastDueIn.reduce(
-      (sum, order) =>
-        sum +
-        order.orders
-          .filter((line) => line.SKU === sku)
-          .reduce((s, line) => s + line.Quantity, 0),
-      0
-    );
+
+    const totalPastDueIn = pastDueIn.reduce((sum, order) => {
+        let recieved = 0
+        if (order.status == 'RECEIVING')
+        {
+          recieved = getTotalQuantityForSKU(order, sku);
+        }
+
+        return (
+          sum +
+          order.orders
+            .filter((line) => line.SKU === sku)
+            .reduce((s, line) => s + line.Quantity - recieved, 0)
+        );
+      }, 0);
 
     const totalPastDueOut = pastDueOut.reduce(
       (sum, order) =>
@@ -426,6 +457,8 @@ export default function ProductTable() {
 
     return result.ots;
   };
+
+  
   const handleSOHClick = async (sku, selectedLocation) => {
 
     try {
@@ -462,11 +495,17 @@ export default function ProductTable() {
         );
 
       const totalPastDueIn = pastDueIn.reduce((sum, order) => {
+        let recieved = 0
+        if (order.status == 'RECEIVING')
+        {
+          recieved = getTotalQuantityForSKU(order, sku);
+        }
+
         return (
           sum +
           order.orders
             .filter((line) => line.SKU === sku)
-            .reduce((s, line) => s + line.Quantity, 0)
+            .reduce((s, line) => s + line.Quantity - recieved, 0)
         );
       }, 0);
 
@@ -651,7 +690,7 @@ export default function ProductTable() {
                   name: list[0]?.Name || comp.Name,
                   bom_qty: comp.Quantity,
                   avail: (c_curentMonthOTS ?? dueEntry.ots) + totalAvailable,
-                  incoming: getOTS(compOTS,currentMonthKey) + c_curentMonthOTS,
+                  incoming: getOTS(compOTS,currentMonthKey),
                 };
               } catch (innerErr) {
                 console.error(
@@ -723,6 +762,7 @@ export default function ProductTable() {
     setRowsPerPage(+e.target.value);
     setPage(0);
   };
+
 
   const renderSkeletonRows = (count = 10) =>
     Array.from({ length: count }).map((_, i) => (
@@ -1046,11 +1086,7 @@ export default function ProductTable() {
                     </Box>
                   ))}
                 </>
-              ) : (
-                <Typography sx={{ mt: 2 }} color="text.secondary">
-                  No components found.
-                </Typography>
-              )}
+              ) : ""}
             </>
           ) : (
             <Typography>No OTS data available.</Typography>
