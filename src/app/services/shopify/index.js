@@ -1,7 +1,12 @@
+import { createGraphQLClient } from "@shopify/graphql-client";
+import '@shopify/shopify-api/adapters/node';
 import { connectToDB } from "../../../lib/mongodb.js";
 import SyncOrder from "../../../models/syncOrder.js";
 import { fetchSaleApi } from "../dear-api/index.js";
+import DeadLetterQueue from "../../../models/DeadLetterQueue.js";
 import ProcessOrder from "../../../models/ProcessOrder.js";
+
+
 const SHOPIFY_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
 const ALLOWED_POS_LOCATIONS = ["Riverhorse Valley-Warehouse", "Deco Park Warehouse"];
@@ -31,6 +36,7 @@ export async function importSalesData() {
 }
 
 export async function processOrders(sale_ids) {
+  await connectToDB();
   console.log("sale IDs:", sale_ids);
   for (const sale_id of sale_ids) {
     try {
@@ -45,7 +51,7 @@ export async function processOrders(sale_ids) {
         customer = newCustomer?.customer;
       }
       customerID = customer.id;
-      const lineItems = await prepareLineItems(customerData);
+      const lineItems = await prepareLineItems(customerData, saleID);
       const tags = [
         "POS-Quote",
         `CoreSale:${customerData.Order.SaleOrderNumber}`,
@@ -58,16 +64,13 @@ export async function processOrders(sale_ids) {
       ];
       const payload = await generateOrderPayload(customerData, lineItems, tags, noteAttributes);
       const createdDraftOrderData = await createDraftOrder(payload);
+      console.log(createdDraftOrderData)
       const draftOrderId = createdDraftOrderData.id;
       const draftOrderInvoiceUrl = createdDraftOrderData.invoice_url;
-      // console.log(`Draft Order created in Shopify with ID: ${draftOrderId}, Invoice URL: ${draftOrderInvoiceUrl}`);
+      console.log(`Draft Order created in Shopify with ID: ${draftOrderId}, Invoice URL: ${draftOrderInvoiceUrl}`);
       sendInvoice(draftOrderId);
       console.log("saveprocess" , saleID , customerID , draftOrderId , draftOrderInvoiceUrl)
       saveProcessOrder(saleID, customerID, draftOrderId, draftOrderInvoiceUrl);
-      
-
-
-
     } catch (error) {
       console.error(`Error processing sale ID ${sale_id}:`, error);
     }
@@ -95,7 +98,6 @@ export async function searchCustomer(email) {
 }
 // // ---------- Step 3: Create customer in Shopify ----------
 export async function createCustomer(customers) {
-  // console.log("Creating customer in Shopify:", customers);
   const c = customers;
   const billing = c.BillingAddress || {};
   const shipping = c.ShippingAddress || {};
@@ -137,84 +139,135 @@ export async function createCustomer(customers) {
   return data;
 }
 
-export async function prepareLineItems(customerData) {
+// ---------- Helper: Find Shopify Variant by SKU ----------
+
+
+export async function prepareLineItems(customerData, saleID) {
+  await connectToDB();
+
   const quoteLines = customerData.Quote?.Lines || [];
   const lineItems = [];
-  // Build Shopify lineItems from quoteLines
+
   for (const line of quoteLines) {
     const sku = line.SKU?.trim();
     const quantity = line.Quantity;
+
     if (!sku) continue;
+
     try {
-      const variant = await getVariantBySKU(sku);
-      if (variant) {
-        lineItems.push({
-          variant_id: `${variant.id}`,
-          quantity: Math.round(quantity),
+      const variant = await fetchVariantsBySKU(sku);
+
+      if (!variant || variant.length === 0) {
+        // SKU NOT FOUND → log to DLQ
+        await DeadLetterQueue.create({
+          sale_id: saleID,
+          sku: sku,
         });
-      } else {
-        console.warn(`Variant not found for SKU: ${sku}`);
+
+        console.log(`DLQ entry created for SKU: ${sku}`);
+        continue;    // IMPORTANT
       }
+
+      // VALID VARIANT
+      const variantId = variant[0].id.split("/").pop();
+
+      lineItems.push({
+        variant_id: variantId,
+        quantity: Math.round(quantity),
+      });
+
     } catch (err) {
       console.error(`Error fetching variant for SKU ${sku}:`, err.message);
     }
   }
-  return lineItems;
+
+  console.log("Prepared line items:", lineItems);
+  return lineItems;   // FIXED
 }
 
-// ---------- Helper: Find Shopify Variant by SKU ----------
-async function getVariantBySKU(sku) {
-  const res = await fetch(
-    `https://${SHOPIFY_DOMAIN}/admin/api/2025-10/variants.json?sku=${encodeURIComponent(sku)}`,
-    {
-      headers: {
-        "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
-        "Content-Type": "application/json",
-      },
-    }
-  );
-  const data = await res.json();
-  return data.variants?.[0] || null;
+
+
+
+const client = createGraphQLClient({
+  url: `https://${SHOPIFY_DOMAIN}/admin/api/2025-10/graphql.json`,
+  headers: {
+    "Content-Type": "application/json",
+    "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
+  },
+});
+const GET_VARIANTS_BY_SKU = /* GraphQL */ `
+   query getVariantsBySKU($sku: String!) {
+     productVariants(first: 50, query: $sku) {
+       edges {
+         node {
+           id
+           title
+           sku
+           inventoryQuantity
+           product {
+             id
+             title
+           }
+         }
+       }
+     }
+   }
+ `;
+async function fetchVariantsBySKU(sku) {
+  const { data, errors } = await client.request(GET_VARIANTS_BY_SKU, {
+    variables: {
+      sku: `sku:${sku}`,  // IMPORTANT
+    },
+  });
+  if (errors) {
+    console.error(errors);
+    throw new Error("Shopify GraphQL error");
+  }
+  return data.productVariants.edges.map(edge => edge.node);
 }
+
 async function generateOrderPayload(customerData, lineItems, tags, noteAttributes) {
   const billing = customerData?.BillingAddress || {};
   const shipping = customerData?.ShippingAddress || {};
-  const payload = {
-    draft_order: {
-      email: customerData?.Email || "",
-      billing_address: {
-        first_name: customerData?.FirstName || "",
-        last_name: customerData?.LastName || "",
-        address1: billing?.Line1 || "",
-        address2: billing?.Line2 || "",
-        city: billing?.City || "",
-        province: billing?.State || "",
-        zip: billing?.Postcode || "",
-        country: billing?.Country || "",
-        phone: customerData?.Phone,
-      },
-      shipping_address: {
-        first_name: customerData?.FirstName || "",
-        last_name: customerData?.LastName || "",
-        address1: shipping?.Line1 || "",
-        address2: shipping?.Line2 || "",
-        city: shipping?.City || "",
-        province: shipping?.State || "",
-        zip: shipping?.Postcode || "",
-        country: shipping?.Country || "",
-        phone: customerData?.Phone,
-      },
-      line_items: lineItems || [],
-      tags: tags.join(", "),
-      note_attributes: noteAttributes || [],
-    }
+
+  return {
+    email: customerData?.Email || "",
+    billing_address: {
+      first_name: customerData?.FirstName || "",
+      last_name: customerData?.LastName || "",
+      address1: billing?.Line1 || "",
+      address2: billing?.Line2 || "",
+      city: billing?.City || "",
+      province: billing?.State || "",
+      zip: billing?.Postcode || "",
+      country: billing?.Country || "",
+      phone: customerData?.Phone,
+    },
+    shipping_address: {
+      first_name: customerData?.FirstName || "",
+      last_name: customerData?.LastName || "",
+      address1: shipping?.Line1 || "",
+      address2: shipping?.Line2 || "",
+      city: shipping?.City || "",
+      province: shipping?.State || "",
+      zip: shipping?.Postcode || "",
+      country: shipping?.Country || "",
+      phone: customerData?.Phone,
+    },
+    line_items: lineItems || [],
+    tags: tags.join(", "),
+    note_attributes: noteAttributes || []
   };
-  return payload;
 }
+
+
 
 export async function createDraftOrder(payload) {
   try {
-    // Create Draft Order via Shopify REST API
+    const body = { draft_order: payload }; // Correct
+
+    console.log("Final payload:", JSON.stringify(body, null, 2));
+
     const res = await fetch(
       `https://${SHOPIFY_DOMAIN}/admin/api/2025-10/draft_orders.json`,
       {
@@ -223,20 +276,21 @@ export async function createDraftOrder(payload) {
           "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(body),
       }
     );
 
     const data = await res.json();
-    if (data) {
-      console.log("Draft Order Created");
-      return data.draft_order;
-    } else {
-      throw new Error("Data not received from Shopify");
+    console.log("Shopify response:", data);
+
+    if (!data.draft_order) {
+      throw new Error(`Draft order not created → ${JSON.stringify(data)}`);
     }
+
+    return data.draft_order;
   } catch (err) {
-    console.error("Error creating draft order:", err.message);
-    return { success: false, message: err.message };
+    console.error("Error creating draft order:", err);
+    throw err;
   }
 }
 
@@ -281,7 +335,6 @@ export async function sendInvoice(draftOrderId) {
 
 export async function saveProcessOrder(saleID, customerID, draftOrderID, invoiceURL ) {
   await connectToDB();
-  // console.log(saleID , customerID , draftOrderID , invoiceURL)
   try {
     const saved = await ProcessOrder.create({
       saleID: saleID,
@@ -298,3 +351,4 @@ export async function saveProcessOrder(saleID, customerID, draftOrderID, invoice
     throw err;
   }
 }
+
