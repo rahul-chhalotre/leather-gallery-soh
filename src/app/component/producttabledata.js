@@ -23,8 +23,10 @@ import {
   Skeleton,
 } from "@mui/material";
 
-
 const normalizeLocation = (loc) => loc?.toLowerCase().replace(/\s+/g, "") || "";
+const API_AUTH_ACCOUNT_ID = "f8354924-2075-4fd3-8578-a64bf0b1b4c2";
+const API_AUTH_APPLICATION_KEY = "f4daba60-021e-66e9-43c2-df6a73740a65";
+
 
 export default function ProductTable() {
   const [products, setProducts] = useState([]);
@@ -87,8 +89,9 @@ export default function ProductTable() {
         })}`;
       };
 
+      let c_data = [];
       const groupedOrders = allOrders.reduce((acc, order) => {
-        if (order.Status != 'RECEIVING'){
+        if (order.Status !== "RECEIVED") {
           if (!order.RequiredBy) return acc;
           const month = getYearMonth(order.RequiredBy);
           acc[month] = acc[month] || [];
@@ -100,10 +103,14 @@ export default function ProductTable() {
               SKU: line.SKU,
               Quantity: line.Quantity,
             })),
+            status: order.Status,
+            put_away: order.PutAway
           });
         }
+        // console.log("group",groupedOrders);
         return acc;
       }, {});
+
       setDueInOrders(groupedOrders);
     } catch (err) {
       console.error("Error fetching due-in orders:", err);
@@ -122,7 +129,6 @@ export default function ProductTable() {
       const data = await res.json();
       console.log("all sales data", data);
       const allOrders = data.saleOrders || [];
-      
 
       const getYearMonth = (dateString) => {
         const date = new Date(dateString);
@@ -130,26 +136,32 @@ export default function ProductTable() {
           month: "short",
         })}`;
       };
-      console.log("All orders:", allOrders.map(o => o.Order?.SaleOrderNumber));
+      console.log(
+        "All orders:",
+        allOrders.map((o) => o.Order?.SaleOrderNumber)
+      );
 
       const groupedOrders = allOrders.reduce((acc, order) => {
-        if (!order.ShipBy) return acc;
-        
-        const month = getYearMonth(order.ShipBy);
-        acc[month] = acc[month] || [];
-        acc[month].push({
-          Location: order.Location,
-          shipby: order.ShipBy,
-          orderNumber: order.Order.SaleOrderNumber,
-          orders: order.Order.Lines.map((line) => ({
-            SKU: line.SKU,
-            Quantity: line.Quantity,
-          })),
-        });
+        if (order.Status !== 'COMPLETED') {
+          // if (!order.ShipBy) return acc;
+
+          const month = getYearMonth(order.ShipBy);
+          acc[month] = acc[month] || [];
+          acc[month].push({
+            Location: order.Location,
+            shipby: order.ShipBy,
+            orderNumber: order.Order.SaleOrderNumber,
+            orders: order.Order.Lines.map((line) => ({
+              SKU: line.SKU,
+              Quantity: line.Quantity,
+            })),
+          });
+        }
         return acc;
       }, {});
-      
+
       setDueOutOrders(groupedOrders);
+      console.log(groupedOrders,"groupOrders")
     } catch (err) {
       console.error("Error fetching due-out orders:", err);
     } finally {
@@ -168,13 +180,30 @@ export default function ProductTable() {
       const result = await res.json();
       const list = result.ProductAvailabilityList || [];
 
+      let data = []
+
+      if (list.length == 0) {
+        const p_url = `https://inventory.dearsystems.com/ExternalApi/v2/product?Sku=${sku}&IncludeBOM=true`
+        const response = await fetch(p_url, {
+          headers: {
+            "Content-Type": "application/json",
+            "api-auth-accountid": API_AUTH_ACCOUNT_ID,
+            "api-auth-applicationkey": API_AUTH_APPLICATION_KEY,
+          },
+          cache: "no-store",
+        });
+
+        const u_data = await response.json();
+        data = u_data.Products;
+      }
+
       const grouped = Object.values(
         list.reduce((acc, item) => {
           if (!acc[item.SKU]) {
             acc[item.SKU] = {
               ...item,
               Location: [item.Location],
-              ProductID: item.ProductID || item.ID,
+              ProductID: item.ProductID || item.ID ,
             };
           } else {
             acc[item.SKU].OnHand += item.OnHand || 0;
@@ -193,7 +222,8 @@ export default function ProductTable() {
 
       const total =
         sku || name ? grouped.length : result.Total || grouped.length;
-      setProducts(grouped);
+
+      (list.length == 0) ? setProducts(data) : setProducts(grouped);
       setTotalRecords(total);
     } catch (err) {
       console.error("Error loading products:", err);
@@ -220,7 +250,10 @@ export default function ProductTable() {
     return new Date(`${monthStr} 1, ${year}`);
   };
 
-  const getMonthlyDueInOutForSKU = (sku, location) => {
+  const getMonthlyDueInOutForSKU = (sku, location, currentMonthKey=null, currentMonthRefs=null) => {
+    let  c_currentMonthKey = currentMonthKey
+    let c_currentMonthRefs = currentMonthRefs
+
     const result = {};
     Object.entries(dueInOrders).forEach(([month, orders]) => {
       const inOrders = orders.filter(
@@ -277,28 +310,173 @@ export default function ProductTable() {
       .sort(([a], [b]) => parseYearMonth(a) - parseYearMonth(b))
       .map(([month, { dueIn, dueOut, refs }]) => {
         ots += dueIn - dueOut;
-        return { month, dueIn, dueOut, ots, refs: refs || [] };
+        return { month, dueIn, dueOut, ots, refs:  ((month === currentMonthKey) ?  refs.concat(currentMonthRefs) : refs )|| [] };
       });
+    
   };
 
+  const getTotalQuantityForSKU = (order, sku) => {
+    let totalQuantity = 0;
+
+    // Loop through all putAway objects and then each line to sum quantities
+    for (const key in order.put_away) {
+        const lines = order.put_away[key].Lines;
+        for (const lineKey in lines) {
+            if (lines[lineKey].SKU === sku) {
+                totalQuantity += lines[lineKey].Quantity;
+            }
+        }
+    }
+
+    return totalQuantity;
+  };
+
+
+  const computeOTSForSKU = (sku, location, OnHand = 0, parentOTS = 0, laterefsON, currentMonthKey, currentMonthRefs) => {
+    const ComponentOnHand = OnHand;
+    console.log(ComponentOnHand, "ComponentOnHand");
+    const monthlyData = getMonthlyDueInOutForSKU(sku, location, currentMonthKey, currentMonthRefs);
+    const today = new Date();
+
+    const pastDueIn = Object.values(dueInOrders)
+      .flat()
+      .filter(
+        (order) =>
+          new Date(order.requireby) < today &&
+          normalizeLocation(order.Location) === normalizeLocation(location) &&
+          order.orders.some((line) => line.SKU === sku)
+      );
+
+    const pastDueOut = Object.values(dueOutOrders)
+      .flat()
+      .filter(
+        (order) =>
+          new Date(order.shipby) < today &&
+          normalizeLocation(order.Location) === normalizeLocation(location) &&
+          order.orders.some((line) => line.SKU === sku)
+      );
+
+
+    const totalPastDueIn = pastDueIn.reduce((sum, order) => {
+        let recieved = 0
+        if (order.status == 'RECEIVING')
+        {
+          recieved = getTotalQuantityForSKU(order, sku);
+        }
+
+        return (
+          sum +
+          order.orders
+            .filter((line) => line.SKU === sku)
+            .reduce((s, line) => s + line.Quantity - recieved, 0)
+        );
+      }, 0);
+
+    const totalPastDueOut = pastDueOut.reduce(
+      (sum, order) =>
+        sum +
+        order.orders
+          .filter((line) => line.SKU === sku)
+          .reduce((s, line) => s + line.Quantity, 0),
+      0
+    );
+
+    // Include parent OTS
+    const sohOTS = ComponentOnHand + (parentOTS || 0);
+    console.log(sohOTS, "SohOTSData");
+    const sohEntry = {
+      month: "SOH",
+      dueIn: sohOTS,
+      dueOut: "",
+      ots: sohOTS,
+      refs: [],
+    };
+
+    const dueEntry = {
+      month: "Late Orders",
+      dueIn: totalPastDueIn,
+      dueOut: totalPastDueOut,
+      ots: sohOTS + totalPastDueIn - totalPastDueOut,
+      refs: [
+        ...new Set([
+          ...pastDueIn.map((o) => o.orderNumber),
+          ...pastDueOut.map((o) => o.orderNumber),
+        ]),
+      ].concat(laterefsON[0])
+    };
+
+
+    let currentOTS = dueEntry.ots;
+    console.log(currentOTS, "currentOTS");
+    let computedData = [];
+    if (Array.isArray(monthlyData) && monthlyData.length > 0) {
+      computedData = monthlyData.map((entry) => {
+        const inQty = parseInt(entry.dueIn) || 0;
+        const outQty = parseInt(entry.dueOut) || 0;
+        currentOTS += inQty - outQty;
+        return { ...entry, ots: currentOTS };
+      });
+    } else {
+      // Fallback: show a current-month placeholder if no data
+      const now = new Date();
+      const currentMonthKey = `${now.getFullYear()}-${now.toLocaleString(
+        "default",
+        {
+          month: "short",
+        }
+      )}`;
+      computedData = [
+        {
+          month: currentMonthKey,
+          dueIn: 0,
+          dueOut: 0,
+          ots: currentOTS,
+        },
+      ];
+    }
+
+    console.log("computeOTSForSKU result:", [
+      sohEntry,
+      dueEntry,
+      ...computedData,
+    ]);
+
+    return [sohEntry, dueEntry, ...computedData];
+  };
+
+  const getOTS = (compOTS, currentMonthKey) => {
+    let result = compOTS.find((item) => item.month === currentMonthKey);
+    if (!result) {
+      result = compOTS.find((item) => item.month === "Late Orders");
+    }
+
+    if (!result) {
+      result = compOTS.find((item) => item.month === "SOH");
+    }
+
+    if (!result) {
+      return 0;
+    }
+
+    return result.ots;
+  };
+
+  
   const handleSOHClick = async (sku, selectedLocation) => {
+
     try {
-      // Start loading indicators
       setPopupLoading(true);
       setOpenPopup(true);
       setPopupData([]);
       setBomComponents([]);
       setBomLoading(true);
 
-      // Find product and base data
       const product = products.find((p) => p.SKU === sku);
       const OnHand = product?.OnHand ?? 0;
 
-      // Get monthly in/out data for SKU
       const monthlyData = getMonthlyDueInOutForSKU(sku, selectedLocation);
       const today = new Date();
 
-      // --- Past Due In Orders ---
       const pastDueIn = Object.values(dueInOrders)
         .flat()
         .filter(
@@ -309,7 +487,6 @@ export default function ProductTable() {
             order.orders.some((line) => line.SKU === sku)
         );
 
-      // --- Past Due Out Orders ---
       const pastDueOut = Object.values(dueOutOrders)
         .flat()
         .filter(
@@ -320,13 +497,18 @@ export default function ProductTable() {
             order.orders.some((line) => line.SKU === sku)
         );
 
-      // --- Calculate totals ---
       const totalPastDueIn = pastDueIn.reduce((sum, order) => {
+        let recieved = 0
+        if (order.status == 'RECEIVING')
+        {
+          recieved = getTotalQuantityForSKU(order, sku);
+        }
+
         return (
           sum +
           order.orders
             .filter((line) => line.SKU === sku)
-            .reduce((s, line) => s + line.Quantity, 0)
+            .reduce((s, line) => s + line.Quantity - recieved, 0)
         );
       }, 0);
 
@@ -339,7 +521,6 @@ export default function ProductTable() {
         );
       }, 0);
 
-      // --- SOH Entry ---
       const sohEntry = {
         month: "SOH",
         dueIn: OnHand,
@@ -348,13 +529,15 @@ export default function ProductTable() {
         refs: [],
       };
 
-      // --- Late Orders Entry ---
+      let laterefsOrderNumber = []
       const lateRefs = [
         ...new Set([
           ...pastDueIn.map((order) => order.orderNumber),
           ...pastDueOut.map((order) => order.orderNumber),
         ]),
       ];
+
+      laterefsOrderNumber.push(lateRefs);
 
       const dueEntry = {
         month: "Late Orders",
@@ -363,21 +546,35 @@ export default function ProductTable() {
         ots: OnHand + totalPastDueIn - totalPastDueOut,
         refs: lateRefs,
       };
-
-      // --- Compute monthly OTS ---
+      
       let currentOTS = dueEntry.ots;
       const computedData = monthlyData.map((entry) => {
-        const inQty = parseInt(entry.dueIn) || 0;
-        const outQty = parseInt(entry.dueOut) || 0;
+        const inQty = Number(entry.dueIn) || 0;
+        const outQty = Number(entry.dueOut) || 0;
         currentOTS += inQty - outQty;
+        // currentOTS = Math.max(, currentOTS);
         return { ...entry, ots: currentOTS };
       });
 
-      // Set popup data for display
+      const now = new Date();
+      const currentMonthKey = `${now.getFullYear()}-${now.toLocaleString(
+        "default",
+        {
+          month: "short",
+        }
+      )}`;
+      const currentMonthEntry = computedData.find(
+        (entry) => entry.month === currentMonthKey
+      );
+
+      let currentMonthRefs = []
+      currentMonthRefs = currentMonthEntry?.refs
+
+      const currentMonthOTS = currentMonthEntry?.ots ?? dueEntry.ots;
+      setPopupData([sohEntry, dueEntry, ...computedData]);
       setPopupData([sohEntry, dueEntry, ...computedData]);
 
-      // --- BOM (Bill of Materials) Fetch ---
-      const dearProductId = product?.ProductID;
+      const dearProductId = product?.ProductID || product?.ID;
       if (dearProductId) {
         const bomRes = await fetch(
           `/api/product?id=${dearProductId}&IncludeBOM=true`
@@ -386,38 +583,127 @@ export default function ProductTable() {
 
         const bomData = await bomRes.json();
         const bomList = bomData?.Products?.[0]?.BillOfMaterialsProducts || [];
+        const enrichedData = [];
 
-        // If BOM exists, fetch component availability
         if (bomList.length > 0) {
           const bomComponents = await Promise.all(
-            bomList.map(async (comp, idx) => {
+            bomList.map(async (comp) => {
               try {
                 const ress = await fetch(
-                  `/api/product-availability?page=1&limit=20&sku=${comp.ProductCode}&location=${selectedLocation}`
+                  `/api/product-availability?page=1&limit=50&sku=${comp.ProductCode}&location=${selectedLocation}`
                 );
-
                 if (!ress.ok) {
                   console.warn(
                     `Failed to fetch availability for ${comp.ProductCode}`
                   );
                   return null;
                 }
-                console.log(ress, "response");
+
                 const results = await ress.json();
-                console.log(results, "results");
                 const list = results?.ProductAvailabilityList || [];
-                const totalOnHand = list.reduce((sum, item) => sum + (item.OnHand ?? 0), 0);
-                const totalAvailable = list.reduce((sum, item) => sum + (item.Available ?? 0), 0);
-                const totalIncoming = list.reduce((sum, item) => sum + (item.OnOrder ?? 0), 0);
-                console.log(list,"listData");
-                console.log(totalOnHand,"Onhand",totalAvailable,"Available",totalIncoming,"incoming")
+
+                const totalAvailable = list.reduce(
+                  (sum, item) => sum + (item.Available ?? 0),
+                  0
+                );
+                const totalIncoming = list.reduce(
+                  (sum, item) => sum + (item.OnOrder ?? 0),
+                  0
+                );
+
+                const e_onhand = list.reduce(
+                  (sum, item) => sum + (item.OnHand ?? 0),
+                  0
+                );
+
+                const now = new Date();
+                const currentMonthKey = `${now.getFullYear()}-${now.toLocaleString(
+                  "default",
+                  {
+                    month: "short",
+                  }
+                )}`;
+                console.log(currentMonthKey, "currentMonthKey");
+                const currentMonthEntry = computedData.find(
+                  (entry) => entry.month === currentMonthKey
+                );
+                const c_curentMonthOTS = currentMonthEntry?.ots ?? dueEntry.ots;
+
+                const compOTS = computeOTSForSKU(
+                  comp.ProductCode,
+                  selectedLocation,
+                  e_onhand,
+                  currentMonthOTS || 0,
+                  laterefsOrderNumber,
+                  currentMonthKey,
+                  currentMonthRefs
+                );
+
+                enrichedData.push({ sku: comp.ProductCode, data: compOTS });
+
+                let componentMonthOts = 0;
+                try {
+                  const comMonthData = getMonthlyDueInOutForSKU(
+                    comp.ProductCode,
+                    selectedLocation
+                  );
+                  console.log(comMonthData, "comMothData");
+                  if (comMonthData) {
+                    comMonthData.sort((a, b) => {
+                      const [aYear, aMonth] = a.month.split("-");
+                      const [bYear, bMonth] = b.month.split("-");
+                      return (
+                        new Date(`${aYear}-${aMonth}-01`) -
+                        new Date(`${bYear}-${bMonth}-01`)
+                      );
+                    });
+                    console.log(comMonthData, "comMonthData");
+                    let compCurrentOts = totalIncoming;
+                    const compComputed = comMonthData.map((entry) => {
+                      const inQty = Number(entry.dueIn) || 0;
+                      const outQty = Number(entry.dueOut) || 0;
+
+                      const Ots = compCurrentOts + inQty - outQty;
+                      compCurrentOts = Ots;
+                      return { ...entry, Ots };
+                    });
+                    console.log(compCurrentOts, "compCurrentOts");
+                    const compMonthEntry = compComputed.find(
+                      (entry) => entry.month === currentMonthKey
+                    );
+                    console.log(compMonthEntry, "compMonthEntry");
+                    if (compMonthEntry) {
+                      componentMonthOts = compMonthEntry.ots;
+                    } else {
+                      componentMonthOts = Math.max(dueEntry.ots);
+                    }
+
+                    // componentMonthOts =
+                    //   compMonthEntry?.ots !== undefined ? compMonthEntry.ots : Math.max(dueEntry.ots)
+                  } else {
+                    componentMonthOts = Math.max(0, dueEntry.ots);
+                  }
+                  console.log(componentMonthOts, "component");
+                } catch (e) {
+                  console.warn(
+                    "Cannot compute monthly OTS for",
+                    comp.ProductCode
+                  );
+                  componentMonthOts = dueEntry.ots;
+                }
+
+                console.log(
+                  comp.ProductCode,
+                  "componentMonthOts:",
+                  componentMonthOts
+                );
+
                 return {
                   sku: list[0]?.SKU || comp.ProductCode,
                   name: list[0]?.Name || comp.Name,
                   bom_qty: comp.Quantity,
-                  soh: totalOnHand,
-                  avail: totalAvailable,
-                  incoming: totalIncoming,
+                  avail: (c_curentMonthOTS ?? dueEntry.ots) + totalAvailable,
+                  incoming: getOTS(compOTS,currentMonthKey),
                 };
               } catch (innerErr) {
                 console.error(
@@ -429,9 +715,24 @@ export default function ProductTable() {
             })
           );
 
-          // Filter out any failed/null entries
           const validComponents = bomComponents.filter(Boolean);
-          setBomComponents(validComponents);
+          // --- Compute OTS breakdown for each component ---
+          const enrichedComponents = validComponents.map((comp) => {
+            // const compOTS = computeOTSForSKU(
+            //   comp.sku,
+            //   selectedLocation,
+            //   comp.OnHand,
+            //   currentMonthOTS || 0
+            // );
+            return {
+              ...comp,
+              otsData: enrichedData.find((item) => item.sku === comp.sku).data,
+            };
+          });
+
+          console.log(enrichedComponents, "enrichedComponents");
+
+          setBomComponents(enrichedComponents);
         } else {
           setBomComponents([]);
         }
@@ -474,6 +775,7 @@ export default function ProductTable() {
     setRowsPerPage(+e.target.value);
     setPage(0);
   };
+
 
   const renderSkeletonRows = (count = 10) =>
     Array.from({ length: count }).map((_, i) => (
@@ -565,12 +867,12 @@ export default function ProductTable() {
             ) : (
               products.map((item, index) => (
                 <TableRow key={index}>
-                  <TableCell>{item.SKU}</TableCell>
-                  <TableCell>{item.Name}</TableCell>
-                  <TableCell>{item.OnHand}</TableCell>
-                  <TableCell>{item.Allocated}</TableCell>
-                  <TableCell>{item.Available}</TableCell>
-                  <TableCell>{item.OnOrder}</TableCell>
+                  <TableCell>{item?.SKU}</TableCell>
+                  <TableCell>{item?.Name}</TableCell>
+                  <TableCell>{item?.OnHand ?? 0}</TableCell>
+                  <TableCell>{item?.Allocated ?? 0}</TableCell>
+                  <TableCell>{item?.Available ?? 0}</TableCell>
+                  <TableCell>{item?.OnOrder ?? 0}</TableCell>
                   <TableCell>
                     <Button
                       variant="text"
@@ -584,7 +886,7 @@ export default function ProductTable() {
                       View OTS
                     </Button>
                   </TableCell>
-                  <TableCell>{item.InTransit}</TableCell>
+                  <TableCell>{item.InTransit ?? 0}</TableCell>
                 </TableRow>
               ))
             )}
@@ -665,55 +967,139 @@ export default function ProductTable() {
                   </Typography>
 
                   <TableContainer component={Paper}>
-                    <Table size="small">
+                    <Table size="small" style={{ border: "1px solid black" }}>
                       <TableHead>
-                        <TableRow>
-                          <TableCell>Product</TableCell>
-                          <TableCell>SKU</TableCell>
-                          <TableCell>BOM Qty</TableCell>
-                          <TableCell align="right">SOH</TableCell>
-                          <TableCell align="right">Available</TableCell>
-                          <TableCell align="right">Incoming</TableCell>
+                        <TableRow style={{ border: "1px solid black" }}>
+                          <TableCell style={{ border: "1px solid black" }}>
+                            Product
+                          </TableCell>
+                          <TableCell style={{ border: "1px solid black" }}>
+                            SKU
+                          </TableCell>
+                          <TableCell style={{ border: "1px solid black" }}>
+                            BOM Qty
+                          </TableCell>
+                          {/* <TableCell align="right" style={{border:"1px solid black"}}>SOH</TableCell> */}
+                          <TableCell
+                            align="right"
+                            style={{ border: "1px solid black" }}
+                          >
+                            SOH
+                          </TableCell>
+                          <TableCell
+                            align="right"
+                            style={{ border: "1px solid black" }}
+                          >
+                            Available This Month
+                          </TableCell>
                         </TableRow>
                       </TableHead>
 
                       <TableBody>
                         {bomComponents.map((comp, idx) => (
                           <TableRow key={idx}>
-                            <TableCell>{comp.name}</TableCell>
-                            <TableCell>{comp.sku}</TableCell>
-                            <TableCell>{comp.bom_qty}</TableCell>
-                            <TableCell align="right">{comp.soh}</TableCell>
-                            <TableCell align="right">{comp.avail}</TableCell>
-                            <TableCell align="right">{comp.incoming}</TableCell>
+                            <TableCell style={{ border: "1px solid black" }}>
+                              {comp.name}
+                            </TableCell>
+                            <TableCell style={{ border: "1px solid black" }}>
+                              {comp.sku}
+                            </TableCell>
+                            <TableCell
+                              align="center"
+                              style={{ border: "1px solid black" }}
+                            >
+                              {comp.bom_qty}
+                            </TableCell>
+                            {/* <TableCell align="right" style={{border:"1px solid black"}}>{comp.soh}</TableCell> */}
+                            <TableCell
+                              align="center"
+                              style={{ border: "1px solid black" }}
+                            >
+                              {comp.avail}
+                            </TableCell>
+                            <TableCell
+                              align="center"
+                              style={{ border: "1px solid black" }}
+                            >
+                              {comp.incoming}
+                            </TableCell>
                           </TableRow>
                         ))}
 
                         <TableRow>
-                          <TableCell colSpan={3} align="right">
+                          <TableCell
+                            colSpan={3}
+                            align="right"
+                            style={{ border: "1px solid black" }}
+                          >
                             <strong>Can Make</strong>
                           </TableCell>
-                          <TableCell align="right">
+                          <TableCell
+                            align="center"
+                            style={{ border: "1px solid black" }}
+                          >
                             {bomComponents.length
-                             ? Math.min(...bomComponents.map((comp) => Math.max(comp.soh ?? 0)))
-                             : 0}
+                              ? Math.min(
+                                  ...bomComponents.map((comp) =>
+                                    Math.max(comp.avail ?? 0)
+                                  )
+                                )
+                              : 0}
                           </TableCell>
-                          <TableCell align="right">
+                          <TableCell
+                            align="center"
+                            style={{ border: "1px solid black" }}
+                          >
                             {bomComponents.length
-                            ? Math.min(...bomComponents.map((comp) => Math.max(comp.avail ?? 0, 0)))
-                            : 0}
+                              ? Math.min(
+                                  ...bomComponents.map((comp) =>
+                                    Math.max(comp.incoming ?? 0, 0)
+                                  )
+                                )
+                              : 0}
                           </TableCell>
-                          <TableCell align="right">-</TableCell>
+                          {/* <TableCell align="right" style={{border:"1px solid black"}}>-</TableCell> */}
                         </TableRow>
                       </TableBody>
                     </Table>
                   </TableContainer>
+                  {bomComponents.map((comp, idx) => (
+                    <Box key={idx} mt={4}>
+                      <Typography variant="subtitle1" sx={{ mb: 1 }}>
+                        OTS for Component: {comp.name} ({comp.sku})
+                      </Typography>
+                      <TableContainer component={Paper}>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                              <TableCell>Ref</TableCell>
+                              <TableCell>Month</TableCell>
+                              <TableCell>In</TableCell>
+                              <TableCell>Out</TableCell>
+                              <TableCell>Open to Sell</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {comp.otsData?.map((entry, i) => (
+                              <TableRow key={i}>
+                                <TableCell>
+                                  {entry.refs?.length
+                                    ? entry.refs.join(", ")
+                                    : "-"}
+                                </TableCell>
+                                <TableCell>{entry.month}</TableCell>
+                                <TableCell>{entry.dueIn}</TableCell>
+                                <TableCell>{entry.dueOut}</TableCell>
+                                <TableCell>{entry.ots}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    </Box>
+                  ))}
                 </>
-              ) : (
-                <Typography sx={{ mt: 2 }} color="text.secondary">
-                  No components found.
-                </Typography>
-              )}
+              ) : ""}
             </>
           ) : (
             <Typography>No OTS data available.</Typography>
