@@ -15,7 +15,7 @@ schedule = "0 */4 * * *"
 schedule= "*/30 * * * *"  
 
 [functions."update-sync-order"]
-schedule= "*/3 * * * *" 
+schedule= "*/20 * * * *" 
 
 [functions."update-process-order"]
-schedule= "*/8 * * * *" 
+schedule= "*/30 * * * *" 

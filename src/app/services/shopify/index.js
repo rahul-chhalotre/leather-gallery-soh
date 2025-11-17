@@ -112,12 +112,25 @@ export async function processOrders(sale_id) {
     }
 
     // ---- Save process data ----
+    if(saleID&&customerID&&draftOrderId&&draftOrderInvoiceUrl){
     await saveProcessOrder(
       saleID,
       customerID,
       draftOrderId,
       draftOrderInvoiceUrl
     );
+    console.log("Saved process order to DB.");
+  }else{
+    console.log(
+    "Not saving to DB. Missing fields:",
+    {
+      saleID,
+      customerID,
+      draftOrderId,
+      draftOrderInvoiceUrl
+    }
+  );
+  }
 
   } catch (error) {
     console.error(`Error processing sale ID ${sale_id}:`, error);
@@ -239,8 +252,6 @@ export async function prepareLineItems(customerData, saleID) {
 }
 
 
-
-
 const client = createGraphQLClient({
   url: `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/2025-10/graphql.json`,
   headers: {
@@ -347,13 +358,10 @@ export async function createDraftOrder(payload) {
   }
 }
 
-
-
 export async function sendInvoice(draftOrderId) {
   console.log("Sending invoice for Draft Order ID:", draftOrderId);
   const invoicePayload = {
     to: "kapil.gurjar2028@gmail.com",
-    from: "kapil.gurjar2028@gmail.com",
     subject: "Apple Computer Invoice",
     custom_message: "Thank you for ordering!",
     bcc: ["kapil.gurjar2028@gmail.com"],

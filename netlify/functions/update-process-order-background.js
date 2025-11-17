@@ -25,10 +25,7 @@ export const handler = async () => {
     
     // Process each order
     for (let sale of sale_ids) {
-        if(sale === "648c8db2-6f25-4285-9ee0-bcce65f98e28"){
-         console.log(sale);
-        await processOrders(sale);
-        }
+      await processOrders(sale);
     }
 
     return {
