@@ -13,3 +13,9 @@ schedule = "0 */4 * * *"
 
 [functions."update-sales"]
 schedule= "*/30 * * * *"  
+
+[functions."update-sync-order"]
+schedule= "*/3 * * * *" 
+
+[functions."update-process-order"]
+schedule= "*/8 * * * *" 

@@ -35,47 +35,90 @@ export async function importSalesData() {
 
 }
 
-export async function processOrders(sale_ids) {
-  await connectToDB();
-  console.log("sale IDs:", sale_ids);
-  for (const sale_id of sale_ids) {
-    try {
-      const saleID = sale_id;
-      const customerData = await SyncOrder.findOne({ ID: sale_id });
-      const customerEmail = customerData.Email;
-      let customer = await searchCustomer(customerEmail);
-      let customerID;
-      if (!customer) {
-        const newCustomer = await createCustomer(customerData);
-        console.log(`Created new customer in Shopify with email ${newCustomer}`);
-        customer = newCustomer?.customer;
-      }
-      customerID = customer.id;
-      const lineItems = await prepareLineItems(customerData, saleID);
-      const tags = [
-        "POS-Quote",
-        `CoreSale:${customerData.Order.SaleOrderNumber}`,
-        `Location:${customerData.Location}`,
-      ];
-      const noteAttributes = [
-        { name: "coreSaleId", value: customerData.ID },
-        { name: "coreDocumentNumber", value: customerData.Order.SaleOrderNumber },
-        { name: "quoteCreatedAt", value: customerData.SaleOrderDate },
-      ];
-      const payload = await generateOrderPayload(customerData, lineItems, tags, noteAttributes);
-      const createdDraftOrderData = await createDraftOrder(payload);
-      console.log(createdDraftOrderData)
-      const draftOrderId = createdDraftOrderData.id;
-      const draftOrderInvoiceUrl = createdDraftOrderData.invoice_url;
-      console.log(`Draft Order created in Shopify with ID: ${draftOrderId}, Invoice URL: ${draftOrderInvoiceUrl}`);
-      sendInvoice(draftOrderId);
-      console.log("saveprocess" , saleID , customerID , draftOrderId , draftOrderInvoiceUrl)
-      saveProcessOrder(saleID, customerID, draftOrderId, draftOrderInvoiceUrl);
-    } catch (error) {
-      console.error(`Error processing sale ID ${sale_id}:`, error);
+export async function processOrders(sale_id) {
+  try {
+    const saleID = sale_id;
+
+    // ---- Fetch order data ----
+    const customerData = await SyncOrder.findOne({ ID: sale_id });
+    const customerEmail = customerData.Email;
+
+    // ---- Find or create customer ----
+    let customer = await searchCustomer(customerEmail);
+    if (!customer) {
+      const newCustomer = await createCustomer(customerData);
+      console.log(`Created new customer: ${newCustomer}`);
+      customer = newCustomer?.customer;
     }
+
+    const customerID = customer.id;
+
+    // ---- Prepare order data ----
+    const lineItems = await prepareLineItems(customerData, saleID);
+    if (!lineItems) {
+      console.log(`Order ${saleID} stopped. SKU missing.`);
+      return;    
+    }
+
+    const tags = [
+      "POS-Quote",
+      `CoreSale:${customerData.Order.SaleOrderNumber}`,
+      `Location:${customerData.Location}`,
+    ];
+
+    const noteAttributes = [
+      { name: "coreSaleId", value: customerData.ID },
+      { name: "coreDocumentNumber", value: customerData.Order.SaleOrderNumber },
+      { name: "quoteCreatedAt", value: customerData.SaleOrderDate },
+    ];
+
+    // ---- Build payload ----
+    const payload = await generateOrderPayload(
+      customerData,
+      lineItems,
+      tags,
+      noteAttributes
+    );
+
+    // ---- Create draft order ----
+    const createdDraftOrderData = await createDraftOrder(payload);
+    console.log("Draft order:", createdDraftOrderData);
+
+    const draftOrderId = createdDraftOrderData.id;
+    const draftOrderInvoiceUrl = createdDraftOrderData.invoice_url;
+
+    console.log(
+      `Draft Order created with ID: ${draftOrderId}, Invoice URL: ${draftOrderInvoiceUrl}`
+    );
+
+    // ---- Send invoice ----
+    const invoiceResult = await sendInvoice(draftOrderId);
+
+    // ---- Update status ONLY if invoice succeeded ----
+    if (invoiceResult.success) {
+      await SyncOrder.updateOne(
+        { ID: saleID },
+        { $set: { Status: "PROCESSED" } }
+      );
+
+      console.log(`Order ${saleID} marked as PROCESSED`);
+    } else {
+      console.log(`Invoice NOT sent for ${saleID}. Status unchanged.`);
+    }
+
+    // ---- Save process data ----
+    await saveProcessOrder(
+      saleID,
+      customerID,
+      draftOrderId,
+      draftOrderInvoiceUrl
+    );
+
+  } catch (error) {
+    console.error(`Error processing sale ID ${sale_id}:`, error);
   }
 }
+
 // // ---------- Step 2: Search Shopify by email ----------
 export async function searchCustomer(email) {
   const res = await fetch(
@@ -165,7 +208,7 @@ export async function prepareLineItems(customerData, saleID) {
         });
 
         console.log(`DLQ entry created for SKU: ${sku}`);
-        continue;    // IMPORTANT
+        return null;
       }
 
       // VALID VARIANT
@@ -333,7 +376,7 @@ export async function sendInvoice(draftOrderId) {
 
 
 
-export async function saveProcessOrder(saleID, customerID, draftOrderID, invoiceURL ) {
+export async function saveProcessOrder(saleID, customerID, draftOrderID, invoiceURL) {
   await connectToDB();
   try {
     const saved = await ProcessOrder.create({
