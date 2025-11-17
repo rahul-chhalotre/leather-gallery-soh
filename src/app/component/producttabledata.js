@@ -250,7 +250,10 @@ export default function ProductTable() {
     return new Date(`${monthStr} 1, ${year}`);
   };
 
-  const getMonthlyDueInOutForSKU = (sku, location) => {
+  const getMonthlyDueInOutForSKU = (sku, location, currentMonthKey=null, currentMonthRefs=null) => {
+    let  c_currentMonthKey = currentMonthKey
+    let c_currentMonthRefs = currentMonthRefs
+
     const result = {};
     Object.entries(dueInOrders).forEach(([month, orders]) => {
       const inOrders = orders.filter(
@@ -307,8 +310,9 @@ export default function ProductTable() {
       .sort(([a], [b]) => parseYearMonth(a) - parseYearMonth(b))
       .map(([month, { dueIn, dueOut, refs }]) => {
         ots += dueIn - dueOut;
-        return { month, dueIn, dueOut, ots, refs: refs || [] };
+        return { month, dueIn, dueOut, ots, refs:  ((month === currentMonthKey) ?  refs.concat(currentMonthRefs) : refs )|| [] };
       });
+    
   };
 
   const getTotalQuantityForSKU = (order, sku) => {
@@ -328,10 +332,10 @@ export default function ProductTable() {
   };
 
 
-  const computeOTSForSKU = (sku, location, OnHand = 0, parentOTS = 0) => {
+  const computeOTSForSKU = (sku, location, OnHand = 0, parentOTS = 0, laterefsON, currentMonthKey, currentMonthRefs) => {
     const ComponentOnHand = OnHand;
     console.log(ComponentOnHand, "ComponentOnHand");
-    const monthlyData = getMonthlyDueInOutForSKU(sku, location);
+    const monthlyData = getMonthlyDueInOutForSKU(sku, location, currentMonthKey, currentMonthRefs);
     const today = new Date();
 
     const pastDueIn = Object.values(dueInOrders)
@@ -398,13 +402,13 @@ export default function ProductTable() {
           ...pastDueIn.map((o) => o.orderNumber),
           ...pastDueOut.map((o) => o.orderNumber),
         ]),
-      ],
+      ].concat(laterefsON[0])
     };
+
 
     let currentOTS = dueEntry.ots;
     console.log(currentOTS, "currentOTS");
     let computedData = [];
-
     if (Array.isArray(monthlyData) && monthlyData.length > 0) {
       computedData = monthlyData.map((entry) => {
         const inQty = parseInt(entry.dueIn) || 0;
@@ -442,7 +446,6 @@ export default function ProductTable() {
 
   const getOTS = (compOTS, currentMonthKey) => {
     let result = compOTS.find((item) => item.month === currentMonthKey);
-
     if (!result) {
       result = compOTS.find((item) => item.month === "Late Orders");
     }
@@ -526,12 +529,15 @@ export default function ProductTable() {
         refs: [],
       };
 
+      let laterefsOrderNumber = []
       const lateRefs = [
         ...new Set([
           ...pastDueIn.map((order) => order.orderNumber),
           ...pastDueOut.map((order) => order.orderNumber),
         ]),
       ];
+
+      laterefsOrderNumber.push(lateRefs);
 
       const dueEntry = {
         month: "Late Orders",
@@ -540,7 +546,7 @@ export default function ProductTable() {
         ots: OnHand + totalPastDueIn - totalPastDueOut,
         refs: lateRefs,
       };
-
+      
       let currentOTS = dueEntry.ots;
       const computedData = monthlyData.map((entry) => {
         const inQty = Number(entry.dueIn) || 0;
@@ -549,6 +555,7 @@ export default function ProductTable() {
         // currentOTS = Math.max(, currentOTS);
         return { ...entry, ots: currentOTS };
       });
+
       const now = new Date();
       const currentMonthKey = `${now.getFullYear()}-${now.toLocaleString(
         "default",
@@ -559,8 +566,11 @@ export default function ProductTable() {
       const currentMonthEntry = computedData.find(
         (entry) => entry.month === currentMonthKey
       );
-      const currentMonthOTS = currentMonthEntry?.ots ?? dueEntry.ots;
 
+      let currentMonthRefs = []
+      currentMonthRefs = currentMonthEntry?.refs
+
+      const currentMonthOTS = currentMonthEntry?.ots ?? dueEntry.ots;
       setPopupData([sohEntry, dueEntry, ...computedData]);
       setPopupData([sohEntry, dueEntry, ...computedData]);
 
@@ -623,7 +633,10 @@ export default function ProductTable() {
                   comp.ProductCode,
                   selectedLocation,
                   e_onhand,
-                  currentMonthOTS || 0
+                  currentMonthOTS || 0,
+                  laterefsOrderNumber,
+                  currentMonthKey,
+                  currentMonthRefs
                 );
 
                 enrichedData.push({ sku: comp.ProductCode, data: compOTS });
