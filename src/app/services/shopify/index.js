@@ -49,6 +49,7 @@ export async function processOrders(sale_id) {
 
     // ---- Find or create customer ----
     let customer = await searchCustomer(customerEmail);
+    console.log(customer, 'customer')
     if (!customer) {
       const newCustomer = await createCustomer(customerData);
       console.log(`Created new customer: ${newCustomer}`);
@@ -125,16 +126,19 @@ export async function processOrders(sale_id) {
 
 // // ---------- Step 2: Search Shopify by email ----------
 export async function searchCustomer(email) {
+  console.log(process.env.SHOPIFY_STORE_DOMAIN, "Domain");
+  console.log(process.env.SHOPIFY_ACCESS_TOKEN, "Token")
   const res = await fetch(
-    `https://${SHOPIFY_DOMAIN}/admin/api/2025-01/customers/search.json?query=email:${email}`,
+    `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/2025-01/customers/search.json?query=email:${email}`,
     {
       headers: {
-        "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
+        "X-Shopify-Access-Token": process.env.SHOPIFY_ACCESS_TOKEN,
         "Content-Type": "application/json",
       },
     }
   );
   const data = await res.json();
+  console.log(data, 'customer res')
   if (data && data.customers && data.customers.length > 0) {
     // Means we got customer data
     return data.customers[0];
@@ -170,8 +174,10 @@ export async function createCustomer(customers) {
       ],
     },
   };
+
+  console.log(process.env.SHOPIFY_STORE_DOMAIN, "Shopify Domain")
   const res = await fetch(
-    `https://${SHOPIFY_DOMAIN}/admin/api/2025-01/customers.json`,
+    `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/2025-01/customers.json`,
     {
       method: "POST",
       headers: {
@@ -236,7 +242,7 @@ export async function prepareLineItems(customerData, saleID) {
 
 
 const client = createGraphQLClient({
-  url: `https://${SHOPIFY_DOMAIN}/admin/api/2025-10/graphql.json`,
+  url: `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/2025-10/graphql.json`,
   headers: {
     "Content-Type": "application/json",
     "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
@@ -316,7 +322,7 @@ export async function createDraftOrder(payload) {
     console.log("Final payload:", JSON.stringify(body, null, 2));
 
     const res = await fetch(
-      `https://${SHOPIFY_DOMAIN}/admin/api/2025-10/draft_orders.json`,
+      `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/2025-10/draft_orders.json`,
       {
         method: "POST",
         headers: {
