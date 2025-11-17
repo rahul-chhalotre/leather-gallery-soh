@@ -39,9 +39,13 @@ export async function processOrders(sale_id) {
   try {
     const saleID = sale_id;
 
+    console.log(saleID, "SalesID")
+
     // ---- Fetch order data ----
-    const customerData = await SyncOrder.findOne({ ID: sale_id });
+    const customerData = await SyncOrder.findOne({ ID: saleID });
     const customerEmail = customerData.Email;
+
+    console.log(customerData, 'CustomerData')
 
     // ---- Find or create customer ----
     let customer = await searchCustomer(customerEmail);
