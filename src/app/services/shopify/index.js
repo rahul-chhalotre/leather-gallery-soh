@@ -1,5 +1,5 @@
 import { createGraphQLClient } from "@shopify/graphql-client";
-import '@shopify/shopify-api/adapters/node';
+// import '@shopify/shopify-api/adapters/node';
 import { connectToDB } from "../../../lib/mongodb.js";
 import SyncOrder from "../../../models/syncOrder.js";
 import { fetchSaleApi } from "../dear-api/index.js";
