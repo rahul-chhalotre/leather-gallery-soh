@@ -6,7 +6,7 @@ import {
 export async function GET() {
   try {
     
-    importSalesData();
+    await importSalesData();
     return NextResponse.json({
       success: true,
       message: "Fetched customers from Cin7 successfully",
