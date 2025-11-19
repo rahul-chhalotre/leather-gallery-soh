@@ -95,7 +95,7 @@ export async function handler(event, context) {
               Order: sale,
               RemainingOut: remainingOut,
             },
-            { upsert: true, new: true }
+            { upsert: true, returnDocument: 'after' }
           );
 
           console.log(`[DB] Upserted Sale ID: ${sale.ID} | RemainingOut: ${remainingOut}`);

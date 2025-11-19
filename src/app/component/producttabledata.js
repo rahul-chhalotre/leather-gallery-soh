@@ -37,7 +37,7 @@ export default function ProductTable() {
     "Riverhorse Valley-Warehouse"
   );
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(50);
+  const [rowsPerPage, setRowsPerPage] = useState(100);
   const [totalRecords, setTotalRecords] = useState(0);
   const [loading, setLoading] = useState(true);
 
@@ -250,10 +250,7 @@ export default function ProductTable() {
     return new Date(`${monthStr} 1, ${year}`);
   };
 
-  const getMonthlyDueInOutForSKU = (sku, location, currentMonthKey=null, currentMonthRefs=null) => {
-    let  c_currentMonthKey = currentMonthKey
-    let c_currentMonthRefs = currentMonthRefs
-
+  const getMonthlyDueInOutForSKU = (sku, location, p_computed_data=null) => {
     const result = {};
     Object.entries(dueInOrders).forEach(([month, orders]) => {
       const inOrders = orders.filter(
@@ -310,7 +307,9 @@ export default function ProductTable() {
       .sort(([a], [b]) => parseYearMonth(a) - parseYearMonth(b))
       .map(([month, { dueIn, dueOut, refs }]) => {
         ots += dueIn - dueOut;
-        return { month, dueIn, dueOut, ots, refs:  ((month === currentMonthKey) ?  refs.concat(currentMonthRefs) : refs )|| [] };
+        let result = p_computed_data?.find((item) => item.month === month)
+        dueOut += (result?.dueOut || 0);
+        return { month, dueIn, dueOut, ots, refs: refs.concat(result?.refs) || [] };
       });
     
   };
@@ -332,10 +331,10 @@ export default function ProductTable() {
   };
 
 
-  const computeOTSForSKU = (sku, location, OnHand = 0, parentOTS = 0, laterefsON, currentMonthKey, currentMonthRefs) => {
+  const computeOTSForSKU = (sku, location, OnHand = 0, parentOTS = 0, p_dueEntry, p_computed_data) => {
     const ComponentOnHand = OnHand;
     console.log(ComponentOnHand, "ComponentOnHand");
-    const monthlyData = getMonthlyDueInOutForSKU(sku, location, currentMonthKey, currentMonthRefs);
+    const monthlyData = getMonthlyDueInOutForSKU(sku, location, p_computed_data);
     const today = new Date();
 
     const pastDueIn = Object.values(dueInOrders)
@@ -392,17 +391,19 @@ export default function ProductTable() {
       refs: [],
     };
 
+    
+
     const dueEntry = {
       month: "Late Orders",
       dueIn: totalPastDueIn,
-      dueOut: totalPastDueOut,
-      ots: sohOTS + totalPastDueIn - totalPastDueOut,
+      dueOut: totalPastDueOut + p_dueEntry.dueOut,
+      ots: sohOTS + totalPastDueIn - (totalPastDueOut + p_dueEntry.dueOut),
       refs: [
         ...new Set([
           ...pastDueIn.map((o) => o.orderNumber),
           ...pastDueOut.map((o) => o.orderNumber),
         ]),
-      ].concat(laterefsON[0])
+      ].concat(p_dueEntry.refs)
     };
 
 
@@ -461,6 +462,15 @@ export default function ProductTable() {
     return result.ots;
   };
 
+  const getLateOTS = (compOTS, currentMonthKey) => {
+    let result = compOTS.find((item) => item.month === "Late Orders");
+    if (!result) {
+      return 0;
+    }
+
+    return result.ots;
+  }
+
   
   const handleSOHClick = async (sku, selectedLocation) => {
 
@@ -513,6 +523,11 @@ export default function ProductTable() {
       }, 0);
 
       const totalPastDueOut = pastDueOut.reduce((sum, order) => {
+        let recieved = 0
+        if(order.status !== 'COMPLETED'){
+          recieved = getTotalQuantityForSKU(order,sku)
+        }
+
         return (
           sum +
           order.orders
@@ -590,7 +605,7 @@ export default function ProductTable() {
             bomList.map(async (comp) => {
               try {
                 const ress = await fetch(
-                  `/api/product-availability?page=1&limit=50&sku=${comp.ProductCode}&location=${selectedLocation}`
+                  `/api/product-availability?page=1&limit=100&sku=${comp.ProductCode}&location=${selectedLocation}`
                 );
                 if (!ress.ok) {
                   console.warn(
@@ -629,20 +644,24 @@ export default function ProductTable() {
                 );
                 const c_curentMonthOTS = currentMonthEntry?.ots ?? dueEntry.ots;
 
+                
                 const compOTS = computeOTSForSKU(
                   comp.ProductCode,
                   selectedLocation,
                   e_onhand,
-                  currentMonthOTS || 0,
-                  laterefsOrderNumber,
-                  currentMonthKey,
-                  currentMonthRefs
+                  0,
+                  dueEntry,
+                  computedData
+                  //laterefsOrderNumber,
+                  //currentMonthKey,
+                  
                 );
 
                 enrichedData.push({ sku: comp.ProductCode, data: compOTS });
 
+
                 let componentMonthOts = 0;
-                try {
+                try {currentMonthRefs
                   const comMonthData = getMonthlyDueInOutForSKU(
                     comp.ProductCode,
                     selectedLocation
@@ -702,7 +721,7 @@ export default function ProductTable() {
                   sku: list[0]?.SKU || comp.ProductCode,
                   name: list[0]?.Name || comp.Name,
                   bom_qty: comp.Quantity,
-                  avail: (c_curentMonthOTS ?? dueEntry.ots) + totalAvailable,
+                  avail: getLateOTS(compOTS,currentMonthKey),//(c_curentMonthOTS ?? dueEntry.ots) + totalAvailable,
                   incoming: getOTS(compOTS,currentMonthKey),
                 };
               } catch (innerErr) {
@@ -901,7 +920,7 @@ export default function ProductTable() {
         onPageChange={handlePageChange}
         rowsPerPage={rowsPerPage}
         onRowsPerPageChange={handleRowsPerPageChange}
-        rowsPerPageOptions={[50, 100, 200]}
+        rowsPerPageOptions={[100, 200, 300]}
       />
 
       <Dialog
