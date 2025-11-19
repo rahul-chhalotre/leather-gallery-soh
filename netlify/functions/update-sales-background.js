@@ -23,18 +23,17 @@ async function fetchDearApi(url) {
     throw new Error(`DEAR API request failed: ${res.status} ${res.statusText}`);
   }
 
-  const data = await res.json();
-//   console.log(`[API] Fetched ${data.SaleList?.length || 0} sale(s)`);
-  return data;
+  return await res.json();
 }
 
 export async function handler(event, context) {
-   console.log(`[SCHEDULED FUNCTION] update-sales-background triggered at: ${new Date().toISOString()}`);
+  console.log(`[SCHEDULED FUNCTION] update-sales-background triggered at: ${new Date().toISOString()}`);
   try {
     console.log("[DB] Connecting to MongoDB...");
     await connectToDB();
     console.log("[DB] MongoDB connected");
 
+    const processedIDs = new Set(); 
     const fullDetails = [];
     const limit = 100;
     let page = 1;
@@ -60,10 +59,14 @@ export async function handler(event, context) {
           const sale = r.value;
           if (!sale.ID) continue;
 
+        
+          processedIDs.add(sale.ID);
+
           const totalOrdered = sale.Lines?.reduce(
             (sum, line) => sum + (line.Quantity || 0),
             0
           ) || 0;
+
           const totalShipped = sale.Fulfilments?.reduce(
             (sum, f) =>
               sum +
@@ -76,6 +79,7 @@ export async function handler(event, context) {
 
           const remainingOut = totalOrdered - totalShipped;
           sale.RemainingOut = remainingOut;
+
           fullDetails.push(sale);
 
           await SaleOrder.findOneAndUpdate(
@@ -111,11 +115,23 @@ export async function handler(event, context) {
     }
 
     console.log(`[INFO] Total sale orders fetched: ${fullDetails.length}`);
+
+    
+    console.log("[CLEANUP] Removing sales that are no longer AUTHORISED...");
+
+    const deleteResult = await SaleOrder.deleteMany({
+      SaleID: { $nin: Array.from(processedIDs) }
+    });
+
+    console.log(`[CLEANUP] Removed ${deleteResult.deletedCount} completed/closed sales.`);
+
+    
     return {
       statusCode: 200,
       body: JSON.stringify({
         message: "Sale orders updated",
         totalOrdersFetched: fullDetails.length,
+        removedClosedSales: deleteResult.deletedCount,
       }),
     };
   } catch (error) {
