@@ -38,15 +38,17 @@ export async function POST() {
       }
 
       // Run Shopify/Dear processing workflow
-      await processOrders(saleId);
+      const result = await processOrders(saleId);
 
-      // Update SyncOrder status to PROCESSED after success
-      await SyncOrder.updateOne(
-        { ID: saleId },
-        { $set: { Status: "PROCESSED", processedAt: new Date() } }
-      );
-
-      console.log(`✅ Sale ${saleId} marked as PROCESSED`);
+      if (result.status === "MISSING_SKU") {
+        console.log(`⚠️ Sale ${saleId} skipped — missing SKUs`);
+      }else if (result.status === "PROCESSED") {
+        await SyncOrder.updateOne(
+          { ID: saleId },
+          { $set: { Status: "PROCESSED", processedAt: new Date() } }
+        );
+         console.log(`Sale ${saleId} marked as PROCESSED`);
+      }
     }
 
     return NextResponse.json(
@@ -58,7 +60,7 @@ export async function POST() {
     );
 
   } catch (error) {
-    console.error("❌ Error processing orders:", error);
+    console.error("Error processing orders:", error);
 
     return NextResponse.json(
       {
