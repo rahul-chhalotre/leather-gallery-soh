@@ -1,21 +1,21 @@
+// netlify/functions/process-orders.js
 import { connectToDB } from "../../src/lib/mongodb.js";
 import SyncOrder from "../../src/models/syncOrder.js";
 import { processOrders } from "../../src/app/services/shopify/index.js";
 
 export const handler = async () => {
   try {
-    console.log("Processing orders (Netlify Function)...");
+    console.log("🚀 Processing orders (Netlify Function)...");
 
-    // Connect to the database
+    // Connect to DB
     await connectToDB();
 
-    // Fetch orders that are NOT processed yet
+    // Fetch unprocessed orders
     const estimatingSales = await SyncOrder.find({
       Status: { $in: ["ESTIMATING", "PENDING"] }
     });
 
     if (estimatingSales.length === 0) {
-      console.log("No unprocessed orders found.");
       return {
         statusCode: 200,
         body: JSON.stringify({
@@ -25,28 +25,30 @@ export const handler = async () => {
       };
     }
 
-    // Loop through each sale
+    // Process each order
     for (let sale of estimatingSales) {
       const saleId = sale.ID;
 
-      console.log(`Processing sale: ${saleId}`);
+      console.log(`🔄 Processing sale: ${saleId}`);
 
-      // Double protection — skip already processed
+      // Double protection – skip already processed
       if (sale.Status === "PROCESSED") {
         console.log(`⏭ Skipping sale ${saleId} (already processed)`);
         continue;
       }
 
-      // Run Shopify/Dear processing workflow
-      await processOrders(saleId);
+      // Run Shopify/Dear workflow
+      const result = await processOrders(saleId);
 
-      // Update SyncOrder status to PROCESSED after success
-      await SyncOrder.updateOne(
-        { ID: saleId },
-        { $set: { Status: "PROCESSED", processedAt: new Date() } }
-      );
-
-      console.log(`Sale ${saleId} marked as PROCESSED`);
+      if (result.status === "MISSING_SKU") {
+        console.log(`⚠️ Sale ${saleId} skipped — missing SKUs`);
+      } else if (result.status === "PROCESSED") {
+        await SyncOrder.updateOne(
+          { ID: saleId },
+          { $set: { Status: "PROCESSED", processedAt: new Date() } }
+        );
+        console.log(`Sale ${saleId} marked as PROCESSED`);
+      }
     }
 
     return {
@@ -58,7 +60,7 @@ export const handler = async () => {
     };
 
   } catch (error) {
-    console.error("Error processing orders:", error);
+    console.error("❌ Error processing orders:", error);
 
     return {
       statusCode: 500,

@@ -80,9 +80,15 @@ export async function processOrders(sale_id) {
 
     // ---- Prepare order data ----
     const lineItems = await prepareLineItems(customerData, saleID);
-    if (!lineItems) {
-      console.log(`Order ${saleID} stopped. SKU missing.`);
-      return;
+    // if (!lineItems) {
+    //   console.log(`Order ${saleID} stopped. SKU missing.`);
+    //   return null;
+    // }
+    if (!lineItems || lineItems.length === 0) {
+      console.log(
+        `Sale ${saleID}: ALL SKUs missing → keeping current status '${customerData.Status}'`
+      );
+      return { status: "MISSING_SKU" };
     }
 
     const tags = [
@@ -144,9 +150,13 @@ export async function processOrders(sale_id) {
 
     // ---- Update status ONLY if invoice succeeded ----
     if (invoiceResult.success) {
+      // await SyncOrder.updateOne(
+      //   { ID: saleID },
+      //   { $set: { Status: "PROCESSED" } }
+      // );
       await SyncOrder.updateOne(
         { ID: saleID },
-        { $set: { Status: "PROCESSED" } }
+        { $set: { Status: "PROCESSED", processedAt: new Date() } }
       );
 
       console.log(`Order ${saleID} marked as PROCESSED`);
@@ -174,6 +184,11 @@ export async function processOrders(sale_id) {
         }
       );
     }
+     return {
+      status: "PROCESSED",
+      draftOrderId,
+      invoiceUrl: draftOrderInvoiceUrl
+    };
 
   } catch (error) {
     console.error(`Error processing sale ID ${sale_id}:`, error);
@@ -265,59 +280,87 @@ export async function prepareLineItems(customerData, saleID) {
     try {
       const variant = await fetchVariantsBySKU(sku);
 
-      //  SKU NOT FOUND
+      // SKU NOT FOUND
+      // if (!variant || variant.length === 0) {
+      //   // Create DLQ only if it does not already exist
+      //   const existingDLQ = await DeadLetterQueue.findOne({
+      //     sale_id: saleID,
+      //     sku: sku,
+      //   });
+
+      //   if (!existingDLQ) {
+      //     await DeadLetterQueue.create({
+      //       sale_id: saleID,
+      //       sku: sku,
+      //       reason: "SKU not found in Shopify",
+      //       created_at: new Date(),
+      //     });
+      //     console.log(`DLQ created for SKU: ${sku} (Sale ID: ${saleID})`);
+      //   } else {
+      //     console.log(
+      //       `DLQ already exists for SKU: ${sku} (Sale ID: ${saleID}) — skipping`
+      //     );
+      //   }
+
+      //   // Skip this SKU, but continue with other SKUs
+      //   continue;
+      // }
+
+
+      // If even ONE SKU is missing -> push ALL SKUs to DLQ and stop processing
       if (!variant || variant.length === 0) {
-        // Create DLQ only if it does not already exist
-        const existingDLQ = await DeadLetterQueue.findOne({
-          sale_id: saleID,
-          sku: sku,
-        });
+        console.log(`Missing SKU: ${sku} → sending ALL SKUs to DLQ (Sale ID: ${saleID})`);
 
-        if (!existingDLQ) {
-          await DeadLetterQueue.create({
-            sale_id: saleID,
-            sku: sku,
-            reason: "SKU not found in Shopify",
-            created_at: new Date(),
-          });
+        // Collect ALL SKUs from the sale
+        const allSKUs = customerData?.Quote?.Lines?.map(item => item.SKU) || [];
 
-          console.log(` DLQ created for SKU: ${sku} (Sale ID: ${saleID})`);
-        } else {
-          console.log(
-            ` DLQ already exists for SKU: ${sku} (Sale ID: ${saleID}) — skipping`
-          );
+        // Insert ALL SKUs into DLQ
+        for (let each of allSKUs) {
+          const exists = await DeadLetterQueue.findOne({ sale_id: saleID, sku: each });
+
+          if (!exists) {
+            await DeadLetterQueue.create({
+              sale_id: saleID,
+              sku: each,
+              reason: "SKU not found in Shopify",
+              created_at: new Date(),
+            });
+            console.log(`DLQ created → SKU: ${each}`);
+          } else {
+            console.log(`DLQ already exists → SKU: ${each}`);
+          }
         }
 
-        // Skip this SKU, continue with other SKUs
-        continue;
+        // STOP the process & DO NOT update status
+        return null; // tells parent function to stop
       }
+
+
 
       // VALID VARIANT — add to lineItems
       const variantId = variant[0].id.split("/").pop();
-
       lineItems.push({
         variant_id: variantId,
         quantity: Math.round(quantity),
+        sku, // optional: keep SKU for tracking
       });
-
     } catch (err) {
       console.error(`Error fetching variant for SKU ${sku}:`, err.message);
-      continue;
+      continue; // skip this SKU but continue with others
     }
   }
 
-  //  STOP the whole process if there are no valid SKUs
+  // STOP the whole process ONLY if there are no valid SKUs
   if (lineItems.length === 0) {
-    console.log(
-      ` No valid SKUs found for Sale ${saleID} — stopping process.`
-    );
+    console.log(`No valid SKUs found for Sale ${saleID} — stopping process.`);
     return null; // signals processOrders to stop
   }
 
-  console.log(" Prepared line items:", lineItems);
+  console.log("Prepared line items:", lineItems);
 
   return lineItems;
 }
+
 
 
 const client = createGraphQLClient({
@@ -348,7 +391,7 @@ const GET_VARIANTS_BY_SKU = /* GraphQL */ `
 async function fetchVariantsBySKU(sku) {
   const { data, errors } = await client.request(GET_VARIANTS_BY_SKU, {
     variables: {
-      sku: `sku:${sku}`,  // IMPORTANT
+      sku: `sku:"${sku}"`,  // IMPORTANT
     },
   });
   if (errors) {
