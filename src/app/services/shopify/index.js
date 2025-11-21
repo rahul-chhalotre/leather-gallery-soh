@@ -80,10 +80,6 @@ export async function processOrders(sale_id) {
 
     // ---- Prepare order data ----
     const lineItems = await prepareLineItems(customerData, saleID);
-    // if (!lineItems) {
-    //   console.log(`Order ${saleID} stopped. SKU missing.`);
-    //   return null;
-    // }
     if (!lineItems || lineItems.length === 0) {
       console.log(
         `Sale ${saleID}: ALL SKUs missing → keeping current status '${customerData.Status}'`
@@ -113,29 +109,6 @@ export async function processOrders(sale_id) {
 
     // ---- Create draft order ----
     const createdDraftOrderData = await createDraftOrder(payload);
-    // const { result: OmnisendData, identifiers } = await syncContactToOmnisend(createdDraftOrderData);
-    // console.log(OmnisendData,"Omnisend Data...............");
-    // console.log(createdDraftOrderData, "Draft order data.............");
-    // ---- Extract store location from tags ----
-    // const storeLocation = getLocationFromTags(createdDraftOrderData.tags);
-    // console.log(storeLocation, "Getting store Location...........");
-    // console.log(createdDraftOrderData.email, "Email...............");
-    // const billingPhone = getBillingPhone(createdDraftOrderData);
-    // console.log(billingPhone, "billingPhone...............");
-    // console.log(customerData.ID, "SaleID...............");
-    // console.log(createdDraftOrderData.line_items, "Line Items...............");
-    // const EventTriggerData = await triggerOrCreateEvent({
-    //   systemName: "pos_quote_created",      // Required system name
-    //   email: createdDraftOrderData.email,
-    //   phone: billingPhone,
-    //   quoteId: customerData.ID,
-    //   store: storeLocation || "Unknown Store",
-    //   items: createdDraftOrderData.line_items
-    // });
-
-
-    // console.log(EventTriggerData);
-
     console.log("Draft order:", createdDraftOrderData);
 
     const draftOrderId = createdDraftOrderData.id;
@@ -146,31 +119,20 @@ export async function processOrders(sale_id) {
     );
 
     // ---- Send invoice ----
-    const invoiceResult = await sendInvoice(draftOrderId);
-
-    // ---- Update status ONLY if invoice succeeded ----
-    if (invoiceResult.success) {
-      // await SyncOrder.updateOne(
-      //   { ID: saleID },
-      //   { $set: { Status: "PROCESSED" } }
-      // );
-      await SyncOrder.updateOne(
-        { ID: saleID },
-        { $set: { Status: "PROCESSED", processedAt: new Date() } }
-      );
-
-      console.log(`Order ${saleID} marked as PROCESSED`);
-    } else {
-      console.log(`Invoice NOT sent for ${saleID}. Status unchanged.`);
-    }
+    const invoiceResult = await sendInvoice(draftOrderId, createdDraftOrderData.email);
 
     // ---- Save process data ----
-    if (saleID && customerID && draftOrderId && draftOrderInvoiceUrl) {
+    if (saleID && customerID && draftOrderId && draftOrderInvoiceUrl && invoiceResult.success) {
       await saveProcessOrder(
         saleID,
         customerID,
         draftOrderId,
         draftOrderInvoiceUrl
+      );
+
+      await SyncOrder.updateOne(
+        { ID: saleID },
+        { $set: { Status: "PROCESSED", processedAt: new Date() } }
       );
       console.log("Saved process order to DB.");
     } else {
@@ -183,12 +145,28 @@ export async function processOrders(sale_id) {
           draftOrderInvoiceUrl
         }
       );
+      console.log(`Invoice NOT sent for ${saleID}. Status unchanged.`);
     }
-     return {
-      status: "PROCESSED",
-      draftOrderId,
-      invoiceUrl: draftOrderInvoiceUrl
-    };
+    const OmnisendData = await syncContactToOmnisend(createdDraftOrderData);
+    console.log(OmnisendData, "Omnisend Data...............");
+    const billingPhone = getBillingPhone(createdDraftOrderData);
+    console.log(billingPhone, "billingPhone...............");
+    console.log(customerData.Email, "customerData.Email...............");
+    const EventTriggerData = await triggerOrCreateEvent({
+      eventName: "pos_quote_created",
+      systemName: "pos_quote_created",
+      email: customerData.Email,
+      phone: billingPhone,
+      quoteId: customerData.ID,
+      store: "Leather Gallery",
+      items: createdDraftOrderData.line_items
+    });
+    console.log(EventTriggerData, "Event Trigger Data...............");
+          return {
+        status: "PROCESSED",
+        draftOrderId,
+        invoiceUrl: draftOrderInvoiceUrl
+      };
 
   } catch (error) {
     console.error(`Error processing sale ID ${sale_id}:`, error);
@@ -279,33 +257,6 @@ export async function prepareLineItems(customerData, saleID) {
 
     try {
       const variant = await fetchVariantsBySKU(sku);
-
-      // SKU NOT FOUND
-      // if (!variant || variant.length === 0) {
-      //   // Create DLQ only if it does not already exist
-      //   const existingDLQ = await DeadLetterQueue.findOne({
-      //     sale_id: saleID,
-      //     sku: sku,
-      //   });
-
-      //   if (!existingDLQ) {
-      //     await DeadLetterQueue.create({
-      //       sale_id: saleID,
-      //       sku: sku,
-      //       reason: "SKU not found in Shopify",
-      //       created_at: new Date(),
-      //     });
-      //     console.log(`DLQ created for SKU: ${sku} (Sale ID: ${saleID})`);
-      //   } else {
-      //     console.log(
-      //       `DLQ already exists for SKU: ${sku} (Sale ID: ${saleID}) — skipping`
-      //     );
-      //   }
-
-      //   // Skip this SKU, but continue with other SKUs
-      //   continue;
-      // }
-
 
       // If even ONE SKU is missing -> push ALL SKUs to DLQ and stop processing
       if (!variant || variant.length === 0) {
@@ -469,14 +420,8 @@ export async function createDraftOrder(payload) {
   }
 }
 
-export async function sendInvoice(draftOrderId) {
+export async function sendInvoice(draftOrderId, toEmail) {
   console.log("Sending invoice for Draft Order ID:", draftOrderId);
-  const invoicePayload = {
-    to: "kapil.gurjar2028@gmail.com",
-    subject: "Apple Computer Invoice",
-    custom_message: "Thank you for ordering!",
-    bcc: ["kapil.gurjar2028@gmail.com"],
-  };
   try {
     const res = await fetch(
       `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/2025-10/draft_orders/${draftOrderId}/send_invoice.json`,
@@ -486,7 +431,7 @@ export async function sendInvoice(draftOrderId) {
           "Content-Type": "application/json",
           "X-Shopify-Access-Token": process.env.SHOPIFY_ACCESS_TOKEN,
         },
-        body: JSON.stringify({ draft_order_invoice: invoicePayload }),
+        body: JSON.stringify({ draft_order_invoice: {} }),
       }
     );
     const data = await res.json();
@@ -523,129 +468,231 @@ export async function saveProcessOrder(saleID, customerID, draftOrderID, invoice
 }
 
 
+// export async function syncContactToOmnisend(draftOrderData) {
+//   const order = draftOrderData?.draft_order || draftOrderData;
+
+//   // ---------- Extract Email ----------
+//   const email =
+//     order.email ||
+//     order.customer?.email ||
+//     null;
+
+//   // ---------- Extract Phone (priority order) ----------
+//   const phone =
+//     order.billing_address?.phone ||
+//     order.shipping_address?.phone ||
+//     order.customer?.default_address?.phone ||
+//     order.customer?.phone ||
+//     null;
+
+//   // ---------- Extract Shopify Consents ----------
+//   const emailConsent = order.customer?.email_marketing_consent || null;
+//   const smsConsent = order.customer?.sms_marketing_consent || null;
+
+//   // ---------- Map Shopify -> Omnisend ----------
+//   const mapConsentStatus = (state) => {
+//     switch (state) {
+//       case "subscribed":
+//         return "subscribed";
+//       case "unsubscribed":
+//         return "unsubscribed";
+//       case "not_subscribed":
+//       default:
+//         return "nonSubscribed";
+//     }
+//   };
+
+//   const emailStatus = mapConsentStatus(emailConsent?.state);
+//   const smsStatus = mapConsentStatus(smsConsent?.state);
+
+//   // ---- Build identifiers array ----
+//   const identifiers = [];
+
+//   if (email) {
+//     const emailObj = {
+//       type: "email",
+//       id: email,
+//       channels: {
+//         email: {
+//           status: emailStatus
+//         }
+//       }
+//     };
+
+//     if (emailConsent?.consent_updated_at) {
+//       emailObj.consent = {
+//         source: "core-pos-quote",
+//         createdAt: emailConsent.consent_updated_at
+//       };
+//     }
+
+//     identifiers.push(emailObj);
+//   }
+
+//   if (phone) {
+//     const phoneObj = {
+//       type: "phone",
+//       id: phone,
+//       channels: {
+//         sms: {
+//           status: smsStatus
+//         }
+//       }
+//     };
+
+//     if (smsConsent?.consent_updated_at) {
+//       phoneObj.consent = {
+//         source: "core-pos-quote",
+//         createdAt: smsConsent.consent_updated_at
+//       };
+//     }
+
+//     identifiers.push(phoneObj);
+//   }
+
+//   // ---- If no identifiers, skip ----
+//   if (identifiers.length === 0) {
+//     console.log("No email or phone → Skipping Omnisend sync.");
+//     return { status: 400, message: "Missing identifiers" };
+//   }
+
+//   // ---- Final Omnisend Payload ----
+//   const payload = {
+//     identifiers,
+//     tags: ["source:core-pos-quote"],
+//     sendWelcomeEmail: true,
+//   };
+
+//   console.log(
+//     "Payload sent to Omnisend:",
+//     JSON.stringify(payload, null, 2)
+//   );
+
+//   // ---- API Call ----
+//   const res = await fetch(`${OMNISEND_API}/contacts`, {
+//     method: "POST",
+//     headers: {
+//       "X-API-KEY": process.env.OMNISEND_API_KEY,
+//       "Content-Type": "application/json"
+//     },
+//     body: JSON.stringify(payload)
+//   });
+
+//   const result = await res.json();
+
+//   if (res.status === 201) {
+//     console.log("Contact CREATED in Omnisend:", result);
+//   } else if (res.status === 200) {
+//     console.log("Contact UPDATED in Omnisend:", result);
+//   } else {
+//     console.log("Omnisend ERROR:", res.status, result);
+//   }
+
+//   return result;
+// }
+
 export async function syncContactToOmnisend(draftOrderData) {
-  const order = draftOrderData?.draft_order || draftOrderData;
+  try {
+    const order = draftOrderData?.draft_order || draftOrderData;
 
-  // ---------- Extract Email ----------
-  const email =
-    order.email ||
-    order.customer?.email ||
-    null;
+    const email =
+      order.email ||
+      order.customer?.email ||
+      null;
 
-  // ---------- Extract Phone (priority order) ----------
-  const phone =
-    order.billing_address?.phone ||
-    order.shipping_address?.phone ||
-    order.customer?.default_address?.phone ||
-    order.customer?.phone ||
-    null;
+    const phone =
+      order.billing_address?.phone ||
+      order.shipping_address?.phone ||
+      order.customer?.default_address?.phone ||
+      order.customer?.phone ||
+      null;
 
-  // ---------- Extract Shopify Consents ----------
-  const emailConsent = order.customer?.email_marketing_consent || null;
-  const smsConsent = order.customer?.sms_marketing_consent || null;
+    const emailConsent = order.customer?.email_marketing_consent || null;
+    const smsConsent = order.customer?.sms_marketing_consent || null;
 
-  // ---------- Map Shopify -> Omnisend ----------
-  const mapConsentStatus = (state) => {
-    switch (state) {
-      case "subscribed":
-        return "subscribed";
-      case "unsubscribed":
-        return "unsubscribed";
-      case "not_subscribed":
-      default:
-        return "nonSubscribed";
-    }
-  };
-
-  const emailStatus = mapConsentStatus(emailConsent?.state);
-  const smsStatus = mapConsentStatus(smsConsent?.state);
-
-  // ---- Build identifiers array ----
-  const identifiers = [];
-
-  if (email) {
-    const emailObj = {
-      type: "email",
-      id: email,
-      channels: {
-        email: {
-          status: emailStatus
-        }
+    const mapConsentStatus = (state) => {
+      switch (state) {
+        case "subscribed":
+          return "subscribed";
+        case "unsubscribed":
+          return "unsubscribed";
+        default:
+          return "nonSubscribed";
       }
     };
 
-    if (emailConsent?.consent_updated_at) {
-      emailObj.consent = {
-        source: "core-pos-quote",
-        createdAt: emailConsent.consent_updated_at
+    const emailStatus = mapConsentStatus(emailConsent?.state);
+    const smsStatus = mapConsentStatus(smsConsent?.state);
+
+    const identifiers = [];
+
+    if (email) {
+      const emailObj = {
+        type: "email",
+        id: email,
+        channels: { email: { status: emailStatus } }
       };
+      if (emailConsent?.consent_updated_at) {
+        emailObj.consent = {
+          source: "core-pos-quote",
+          createdAt: emailConsent.consent_updated_at
+        };
+      }
+      identifiers.push(emailObj);
     }
 
-    identifiers.push(emailObj);
-  }
-
-  if (phone) {
-    const phoneObj = {
-      type: "phone",
-      id: phone,
-      channels: {
-        sms: {
-          status: smsStatus
-        }
+    if (phone) {
+      const phoneObj = {
+        type: "phone",
+        id: phone,
+        channels: { sms: { status: smsStatus } }
+      };
+      if (smsConsent?.consent_updated_at) {
+        phoneObj.consent = {
+          source: "core-pos-quote",
+          createdAt: smsConsent.consent_updated_at
+        };
       }
+      identifiers.push(phoneObj);
+    }
+
+    if (identifiers.length === 0) {
+      return { status: 400, message: "Missing identifiers" };
+    }
+
+    const payload = {
+      identifiers,
+      tags: ["source:core-pos-quote"],
+      sendWelcomeEmail: true,
     };
 
-    if (smsConsent?.consent_updated_at) {
-      phoneObj.consent = {
-        source: "core-pos-quote",
-        createdAt: smsConsent.consent_updated_at
-      };
-    }
+    console.log("Payload sent to Omnisend:", JSON.stringify(payload, null, 2));
 
-    identifiers.push(phoneObj);
+    const res = await fetch(`${OMNISEND_API}/contacts`, {
+      method: "POST",
+      headers: {
+        "X-API-KEY": process.env.OMNISEND_API_KEY,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const result = await res.json();
+
+    return {
+      status: res.status,
+      data: result
+    };
+
+  } catch (err) {
+    console.error("syncContactToOmnisend ERROR:", err);
+    return { status: 500, error: "Internal Error", details: err.message };
   }
-
-  // ---- If no identifiers, skip ----
-  if (identifiers.length === 0) {
-    console.log("No email or phone → Skipping Omnisend sync.");
-    return { status: 400, message: "Missing identifiers" };
-  }
-
-  // ---- Final Omnisend Payload ----
-  const body = {
-    identifiers,
-    tags: ["source:core-pos-quote"]
-  };
-
-  console.log(
-    "Payload sent to Omnisend:",
-    JSON.stringify(body, null, 2)
-  );
-
-  // ---- API Call ----
-  const res = await fetch(`${OMNISEND_API}/contacts`, {
-    method: "POST",
-    headers: {
-      "X-API-KEY": process.env.OMNISEND_API_KEY,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(body)
-  });
-
-  const result = await res.json();
-
-  if (res.status === 201) {
-    console.log("Contact CREATED in Omnisend:", result);
-  } else if (res.status === 200) {
-    console.log("🔄 Contact UPDATED in Omnisend:", result);
-  } else {
-    console.log("Omnisend ERROR:", res.status, result);
-  }
-
-  return { result, identifiers };
 }
 
+
 export async function triggerOrCreateEvent({
+  eventName,
   systemName,      // required
   email,
   phone,
@@ -664,7 +711,8 @@ export async function triggerOrCreateEvent({
       .join(", ");
 
     // Build payload EXACTLY as Omnisend v3 requires
-    const body = {
+    const payload = {
+      eventName,                  // OPTIONAL
       systemName,                 // REQUIRED
       email: email || undefined,  // Omnisend accepts either email or phone
       phone: phone || undefined,
@@ -683,7 +731,7 @@ export async function triggerOrCreateEvent({
         "X-API-KEY": API_KEY,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(payload),
     });
 
     // Safe JSON or text parsing
@@ -707,19 +755,6 @@ export async function triggerOrCreateEvent({
     console.error(`Error in triggerOrCreateEvent:`, err);
     throw err;
   }
-}
-
-function getLocationFromTags(tags) {
-  if (!tags) return null;
-
-  const locationTag = tags
-    .split(",")                      // split tags by comma
-    .map(tag => tag.trim())          // trim spaces
-    .find(tag => tag.startsWith("Location:")); // find the tag that starts with "Location:"
-
-  if (!locationTag) return null;
-
-  return locationTag.split(":")[1].trim(); // return only the value after "Location:"
 }
 function getBillingPhone(draftOrder) {
   console.log(draftOrder)
